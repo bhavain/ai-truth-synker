@@ -1,0 +1,44 @@
+{
+  "historical_summaries": [
+    {
+      "channel": "supply-chain",
+      "topic": "HB900_voltage_spec",
+      "timestamp": "2023-09-15T14:30:00Z",
+      "summary": "Engineering team discussed H-Bridge Driver (HB-900) voltage tolerance specifications. Consensus reached on 5V ±10% operating range. Sarah from avionics confirmed this meets actuator control requirements. Part number finalized as HB-900-REV3.",
+      "participants": ["supply-chain", "avionics", "electrical"],
+      "thread_id": "slack://supply-chain/1694785800.000000"
+    },
+    {
+      "channel": "supply-chain",
+      "topic": "vendor_reliability_techsupply",
+      "timestamp": "2023-08-12T09:15:00Z",
+      "summary": "TechSupply Corp experienced customs delay on previous order (capacitor shipment CAP-400 series). Delay was 10 days due to incomplete export documentation. Team noted to request advance shipping notices for future orders. Vendor rated 3.5/5 for reliability.",
+      "participants": ["supply-chain", "management"],
+      "thread_id": "slack://supply-chain/1691834100.000000"
+    },
+    {
+      "channel": "avionics",
+      "topic": "integration_test_reschedule",
+      "timestamp": "2023-09-30T16:45:00Z",
+      "summary": "Q3 Integration Test originally scheduled for 2023-09-30 was moved to 2023-10-15 due to Lab 3 availability conflict. QA team was testing battery systems during the original window. All stakeholders (avionics, mechanical, supply-chain) confirmed Oct 15 works.",
+      "participants": ["avionics", "mechanical", "qa"],
+      "thread_id": "slack://avionics/1696091100.000000"
+    },
+    {
+      "channel": "avionics",
+      "topic": "actuator_compatibility_testing",
+      "timestamp": "2023-09-20T11:00:00Z",
+      "summary": "TVC Actuator (ACTUATOR_TVC_001) bench testing completed successfully. Control signal response time measured at 12ms (within spec). Driver interface verified compatible with HB-900 pinout. Mechanical team confirmed mounting bracket alignment.",
+      "participants": ["avionics", "mechanical", "electrical"],
+      "thread_id": "slack://avionics/1695207600.000000"
+    },
+    {
+      "channel": "management",
+      "topic": "q4_assembly_planning",
+      "timestamp": "2023-10-01T10:00:00Z",
+      "summary": "Q4 Final Assembly milestone planning meeting. Target date confirmed as Nov 1, 2023. Budget allocated: $500k. Critical path items identified: Integration Test completion, procurement of secondary components, QA sign-off. Risk assessment: moderate supply chain uncertainty.",
+      "participants": ["management", "supply-chain", "qa", "avionics"],
+      "thread_id": "slack://management/1696154400.000000"
+    }
+  ]
+}

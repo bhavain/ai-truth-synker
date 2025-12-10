@@ -1,0 +1,76 @@
+{
+  "entities": [
+    {
+      "id": "HB900_DRIVER",
+      "name": "H-Bridge Driver (HB-900)",
+      "entity_type": "PART",
+      "status": "ON_TRACK",
+      "milestone_date": "2023-10-15",
+      "owner_team": "supply-chain",
+      "metadata": {
+        "vendor": "TechSupply Corp",
+        "part_number": "HB-900-REV3",
+        "voltage_rating": "5V ±10%",
+        "critical_path": true
+      }
+    },
+    {
+      "id": "Q3_INTEGRATION_TEST",
+      "name": "Q3 TVC Actuator Integration Test",
+      "entity_type": "TEST",
+      "status": "ON_TRACK",
+      "milestone_date": "2023-10-15",
+      "owner_team": "avionics",
+      "metadata": {
+        "test_facility": "Lab 3",
+        "duration_hours": 8,
+        "requires_parts": ["HB900_DRIVER", "ACTUATOR_TVC_001"]
+      }
+    },
+    {
+      "id": "ACTUATOR_TVC_001",
+      "name": "Thrust Vector Control Actuator",
+      "entity_type": "PART",
+      "status": "COMPLETED",
+      "milestone_date": "2023-10-01",
+      "owner_team": "mechanical",
+      "metadata": {
+        "manufacturer": "AeroMech Industries",
+        "weight_kg": 2.4,
+        "received_date": "2023-09-28"
+      }
+    },
+    {
+      "id": "FINAL_ASSEMBLY_Q4",
+      "name": "Q4 Final Assembly Milestone",
+      "entity_type": "MILESTONE",
+      "status": "ON_TRACK",
+      "milestone_date": "2023-11-01",
+      "owner_team": "management",
+      "metadata": {
+        "stakeholders": ["Engineering", "QA", "Supply Chain"],
+        "budget_allocated": 500000
+      }
+    }
+  ],
+  "dependencies": [
+    {
+      "parent_id": "Q3_INTEGRATION_TEST",
+      "child_id": "HB900_DRIVER",
+      "dependency_type": "CRITICAL_BLOCKER",
+      "confidence": 1.0
+    },
+    {
+      "parent_id": "Q3_INTEGRATION_TEST",
+      "child_id": "ACTUATOR_TVC_001",
+      "dependency_type": "CRITICAL_BLOCKER",
+      "confidence": 1.0
+    },
+    {
+      "parent_id": "FINAL_ASSEMBLY_Q4",
+      "child_id": "Q3_INTEGRATION_TEST",
+      "dependency_type": "CRITICAL_BLOCKER",
+      "confidence": 1.0
+    }
+  ]
+}
