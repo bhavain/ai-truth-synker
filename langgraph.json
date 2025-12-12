@@ -1,0 +1,8 @@
+{
+  "dependencies": ["."],
+  "graphs": {
+    "batch_workflow": "./backend/app/graph/batch_langgraph.py:create_batch_workflow"
+  },
+  "env": ".env",
+  "python_version": "3.13"
+}

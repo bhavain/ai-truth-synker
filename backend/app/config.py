@@ -12,10 +12,10 @@ class Settings(BaseSettings):
     openai_api_key: str
 
     # LangSmith Configuration
-    langchain_tracing_v2: bool = True
-    langchain_endpoint: str = "https://api.smith.langchain.com"
-    langchain_api_key: str
-    langchain_project: str = "truth_engine_dev"
+    langsmith_tracing_v2: bool = True
+    langsmith_endpoint: str = "https://api.smith.langchain.com"
+    langsmith_api_key: str = ""
+    langsmith_project: str = "truth_engine_dev"
 
     # Dolt Database Configuration
     dolt_host: str = "localhost"
