@@ -1,0 +1,18 @@
+log_level: info
+
+behavior:
+  read_only: false
+  autocommit: true
+
+listener:
+  host: "0.0.0.0"
+  port: 3306
+  max_connections: 100
+  read_timeout_millis: 28800000
+  write_timeout_millis: 28800000
+  # TLS configuration required for caching_sha2_password
+  tls_cert: /etc/dolt/certs/server-cert.pem
+  tls_key: /etc/dolt/certs/server-key.pem
+  require_secure_transport: true
+
+data_dir: /var/lib/dolt

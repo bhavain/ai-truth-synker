@@ -54,3 +54,8 @@ notifications.json
 
 # Docker volumes
 docker-volumes/
+
+# Dolt SSL certificates
+certs/
+
+.langgraph_api/

@@ -6,6 +6,7 @@ from datetime import date
 from typing import Optional, Any
 from contextlib import contextmanager
 from functools import lru_cache
+from pathlib import Path
 
 import pymysql
 from pymysql.cursors import DictCursor
@@ -21,6 +22,8 @@ class DoltClient:
 
     def __init__(self) -> None:
         self.settings = get_settings()
+
+        # Base connection parameters
         self.connection_params = {
             "host": self.settings.dolt_host,
             "port": self.settings.dolt_port,
@@ -29,6 +32,19 @@ class DoltClient:
             "database": self.settings.dolt_database,
             "cursorclass": DictCursor,
         }
+
+        # Add SSL configuration for caching_sha2_password support
+        ssl_ca_path = Path(__file__).parent.parent.parent.parent / "certs" / "dolt" / "ca-cert.pem"
+        if ssl_ca_path.exists():
+            self.connection_params["ssl"] = {
+                "ca": str(ssl_ca_path)
+            }
+            # For self-signed certificates in development
+            self.connection_params["ssl_verify_cert"] = False
+            self.connection_params["ssl_verify_identity"] = False
+            logger.info("SSL enabled for Dolt connection")
+        else:
+            logger.warning(f"SSL CA certificate not found at {ssl_ca_path}. Proceeding without SSL.")
 
     @contextmanager
     def get_connection(self):
