@@ -13,6 +13,8 @@ from .schemas import (
     SQLAction,
     ConflictAlert,
     JudgeVerdict,
+    GraphState,
+    EvidenceReference,
 )
 from .enums import EntityType, EntityStatus, DependencyType, MessageClass, ConflictSeverity
 
@@ -29,4 +31,6 @@ __all__ = [
     "SQLAction",
     "ConflictAlert",
     "JudgeVerdict",
+    "GraphState",
+    "EvidenceReference",
 ]

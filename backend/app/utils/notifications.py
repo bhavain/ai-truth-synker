@@ -4,7 +4,7 @@ import json
 import logging
 from pathlib import Path
 from datetime import datetime
-from typing import Any
+from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 

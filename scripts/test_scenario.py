@@ -12,7 +12,7 @@ import httpx
 # Add backend to path
 sys.path.insert(0, str(Path(__file__).parent.parent / "backend"))
 
-API_URL = "http://localhost:8080"
+API_URL = "http://127.0.0.1:8000"
 
 
 def load_mock_messages():

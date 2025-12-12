@@ -1,5 +1,6 @@
 """Dolt database client for version-controlled factual state"""
 
+import json
 import logging
 from datetime import date
 from typing import Optional, Any
@@ -93,8 +94,12 @@ class DoltClient:
                     )
                 """)
 
-                # Create initial Dolt commit
-                cursor.execute("SELECT DOLT_COMMIT('-a', '-m', 'Initialize Truth Engine schema')")
+                # Create initial Dolt commit (only if there are changes)
+                try:
+                    cursor.execute("CALL DOLT_COMMIT('-a', '-m', 'Initialize Truth Engine schema')")
+                except pymysql.err.OperationalError as e:
+                    if 'nothing to commit' not in str(e):
+                        raise
 
         logger.info("Database initialized successfully")
 
@@ -115,12 +120,12 @@ class DoltClient:
                         entity.status.value,
                         entity.milestone_date,
                         entity.owner_team,
-                        pymysql.converters.escape_string(str(entity.metadata)),
+                        json.dumps(entity.metadata) if entity.metadata else None,
                     ),
                 )
 
                 # Dolt commit
-                cursor.execute("SELECT DOLT_COMMIT('-a', '-m', %s)", (commit_message,))
+                cursor.execute("CALL DOLT_COMMIT('-a', '-m', %s)", (commit_message,))
 
         logger.info(f"Inserted entity {entity.id}")
 
@@ -154,12 +159,12 @@ class DoltClient:
 
                 # Create Dolt commit
                 full_commit_msg = f"{commit_message} | Source: {source_thread_id}"
-                cursor.execute("SELECT DOLT_COMMIT('-a', '-m', %s)", (full_commit_msg,))
+                cursor.execute("CALL DOLT_COMMIT('-a', '-m', %s)", (full_commit_msg,))
 
                 # Get commit hash
-                cursor.execute("SELECT DOLT_LOG('-n', '1', '--format=%H')")
+                cursor.execute("SELECT HASHOF('HEAD')")
                 result = cursor.fetchone()
-                commit_hash = result["DOLT_LOG('-n', '1', '--format=%H')"] if result else None
+                commit_hash = result["HASHOF('HEAD')"] if result else None
 
         logger.info(f"Updated entity {entity_id}, commit: {commit_hash}")
         return commit_hash
@@ -185,7 +190,7 @@ class DoltClient:
                     milestone_date=row["milestone_date"],
                     owner_team=row["owner_team"],
                     last_commit_id=row.get("last_commit_id"),
-                    metadata=eval(row.get("metadata", "{}")) if row.get("metadata") else {},
+                    metadata=json.loads(row.get("metadata", "{}")) if row.get("metadata") else {},
                 )
 
     def get_all_entities(self) -> list[ProjectEntity]:
@@ -204,7 +209,7 @@ class DoltClient:
                         milestone_date=row["milestone_date"],
                         owner_team=row["owner_team"],
                         last_commit_id=row.get("last_commit_id"),
-                        metadata=eval(row.get("metadata", "{}")) if row.get("metadata") else {},
+                        metadata=json.loads(row.get("metadata", "{}")) if row.get("metadata") else {},
                     )
                     for row in rows
                 ]

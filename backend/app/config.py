@@ -1,5 +1,6 @@
 """Configuration management for Truth Engine"""
 
+from pathlib import Path
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from functools import lru_cache
 
@@ -37,7 +38,7 @@ class Settings(BaseSettings):
     judge_model: str = "gpt-4o"
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=str(Path(__file__).parent.parent.parent / ".env"),
         env_file_encoding="utf-8",
         case_sensitive=False,
     )

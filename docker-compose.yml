@@ -8,19 +8,12 @@ services:
       - "3306:3306"
     environment:
       - DOLT_ROOT_PATH=/var/lib/dolt
+      - MYSQL_ROOT_PASSWORD=password
     volumes:
       - dolt_data:/var/lib/dolt
     command:
       - -l
       - debug
-      # - --host
-      # - "0.0.0.0"
-      # - --port
-      # - "3306"
-      # - --user
-      # - root
-      # - --password
-      # - evercurrent_password
     healthcheck:
       test: ["CMD", "dolt", "version"]
       interval: 10s
