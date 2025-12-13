@@ -1,0 +1,186 @@
+{
+  "window_start": "2023-10-24T10:00:00",
+  "window_end": "2023-10-24T10:30:00",
+  "messages": [
+
+    {
+      "channel": "random",
+      "ts": "1698163080.001",
+      "user": "U001RD",
+      "text": "Anyone want to grab lunch?",
+      "timestamp": "2023-10-24T09:58:00"
+    },
+    {
+      "channel": "random",
+      "ts": "1698163140.002",
+      "user": "U002RD",
+      "text": "Sure, where are you thinking?",
+      "timestamp": "2023-10-24T09:59:00"
+    },
+
+    {
+      "channel": "supply-chain",
+      "ts": "1698163200.003",
+      "user": "U001SC",
+      "text": "Good morning team",
+      "timestamp": "2023-10-24T10:00:00"
+    },
+    {
+      "channel": "supply-chain",
+      "ts": "1698163260.004",
+      "user": "U002SC",
+      "text": "Morning! Any updates on HB900?",
+      "timestamp": "2023-10-24T10:01:00"
+    },
+    {
+      "channel": "supply-chain",
+      "ts": "1698163320.005",
+      "user": "U001SC",
+      "text": "Let me check with TechSupply",
+      "timestamp": "2023-10-24T10:02:00"
+    },
+    {
+      "channel": "supply-chain",
+      "ts": "1698163380.006",
+      "user": "U001SC",
+      "text": "They're saying it might be stuck in customs",
+      "timestamp": "2023-10-24T10:03:00"
+    },
+    {
+      "channel": "supply-chain",
+      "ts": "1698163500.007",
+      "user": "U002SC",
+      "text": "Oh no, not again. Can you get more details?",
+      "timestamp": "2023-10-24T10:05:00"
+    },
+    {
+      "channel": "supply-chain",
+      "ts": "1698163680.008",
+      "user": "U001SC",
+      "text": "On call with them now, checking their tracking system",
+      "timestamp": "2023-10-24T10:08:00"
+    },
+    {
+      "channel": "supply-chain",
+      "ts": "1698163800.009",
+      "user": "U001SC",
+      "text": "OK confirmed - HB900 driver is delayed 2 weeks due to customs clearance",
+      "timestamp": "2023-10-24T10:10:00"
+    },
+    {
+      "channel": "supply-chain",
+      "ts": "1698163860.010",
+      "user": "U002SC",
+      "text": "What's the new ETA?",
+      "timestamp": "2023-10-24T10:11:00"
+    },
+    {
+      "channel": "supply-chain",
+      "ts": "1698163920.011",
+      "user": "U001SC",
+      "text": "Vendor says November 7, 2023",
+      "timestamp": "2023-10-24T10:12:00"
+    },
+    {
+      "channel": "supply-chain",
+      "ts": "1698163980.012",
+      "user": "U002SC",
+      "text": "Got it, I'll update the tracking sheet",
+      "timestamp": "2023-10-24T10:13:00"
+    },
+
+    {
+      "channel": "random",
+      "ts": "1698164040.013",
+      "user": "U003RD",
+      "text": "Did anyone watch the game last night?",
+      "timestamp": "2023-10-24T10:14:00"
+    },
+    {
+      "channel": "random",
+      "ts": "1698164100.014",
+      "user": "U004RD",
+      "text": "Yeah! Amazing finish!",
+      "timestamp": "2023-10-24T10:15:00"
+    },
+
+    {
+      "channel": "avionics",
+      "ts": "1698164160.015",
+      "user": "U001AV",
+      "text": "Hey team, quick status check",
+      "timestamp": "2023-10-24T10:16:00"
+    },
+    {
+      "channel": "avionics",
+      "ts": "1698164220.016",
+      "user": "U002AV",
+      "text": "All systems nominal here",
+      "timestamp": "2023-10-24T10:17:00"
+    },
+    {
+      "channel": "avionics",
+      "ts": "1698164280.017",
+      "user": "U001AV",
+      "text": "Have we confirmed the Q3 integration test is still on for October 15?",
+      "timestamp": "2023-10-24T10:18:00"
+    },
+    {
+      "channel": "avionics",
+      "ts": "1698164340.018",
+      "user": "U003AV",
+      "text": "Yes, date is locked in. October 15, can't slip.",
+      "timestamp": "2023-10-24T10:19:00"
+    },
+    {
+      "channel": "avionics",
+      "ts": "1698164400.019",
+      "user": "U002AV",
+      "text": "Wait, I just saw supply-chain channel - HB900 is delayed to November 7. That's going to block us!",
+      "timestamp": "2023-10-24T10:20:00"
+    },
+    {
+      "channel": "avionics",
+      "ts": "1698164460.020",
+      "user": "U001AV",
+      "text": "What? The test depends on HB900. We can't run it without that driver.",
+      "timestamp": "2023-10-24T10:21:00"
+    },
+    {
+      "channel": "avionics",
+      "ts": "1698164520.021",
+      "user": "U003AV",
+      "text": "This is critical - Nov 7 is 3 weeks AFTER our test date. We're completely blocked.",
+      "timestamp": "2023-10-24T10:22:00"
+    },
+    {
+      "channel": "avionics",
+      "ts": "1698164580.022",
+      "user": "U002AV",
+      "text": "We need to escalate this immediately. Q3 test can't slip.",
+      "timestamp": "2023-10-24T10:23:00"
+    },
+    {
+      "channel": "avionics",
+      "ts": "1698164640.023",
+      "user": "U001AV",
+      "text": "Agreed. Let's set up a sync with supply-chain to discuss alternatives.",
+      "timestamp": "2023-10-24T10:24:00"
+    },
+
+    {
+      "channel": "random",
+      "ts": "1698164700.024",
+      "user": "U005RD",
+      "text": "Coffee break anyone?",
+      "timestamp": "2023-10-24T10:25:00"
+    },
+    {
+      "channel": "random",
+      "ts": "1698164760.025",
+      "user": "U006RD",
+      "text": "I'm in!",
+      "timestamp": "2023-10-24T10:26:00"
+    }
+  ]
+}
