@@ -1,5 +1,6 @@
 """LangGraph workflow for Truth Engine"""
 
-from .workflow import create_workflow, run_workflow
+# Batch workflow (LangGraph multi-agent)
+from .batch_langgraph import create_batch_workflow, get_workflow, process_batch
 
-__all__ = ["create_workflow", "run_workflow"]
+__all__ = ["create_batch_workflow", "get_workflow", "process_batch"]
