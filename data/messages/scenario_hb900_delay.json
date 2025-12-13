@@ -2,7 +2,6 @@
   "window_start": "2023-10-24T10:00:00",
   "window_end": "2023-10-24T10:30:00",
   "messages": [
-
     {
       "channel": "random",
       "ts": "1698163080.001",
@@ -17,7 +16,6 @@
       "text": "Sure, where are you thinking?",
       "timestamp": "2023-10-24T09:59:00"
     },
-
     {
       "channel": "supply-chain",
       "ts": "1698163200.003",
@@ -88,7 +86,6 @@
       "text": "Got it, I'll update the tracking sheet",
       "timestamp": "2023-10-24T10:13:00"
     },
-
     {
       "channel": "random",
       "ts": "1698164040.013",
@@ -103,7 +100,6 @@
       "text": "Yeah! Amazing finish!",
       "timestamp": "2023-10-24T10:15:00"
     },
-
     {
       "channel": "avionics",
       "ts": "1698164160.015",
@@ -167,7 +163,6 @@
       "text": "Agreed. Let's set up a sync with supply-chain to discuss alternatives.",
       "timestamp": "2023-10-24T10:24:00"
     },
-
     {
       "channel": "random",
       "ts": "1698164700.024",

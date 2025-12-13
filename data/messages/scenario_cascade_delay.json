@@ -1,0 +1,370 @@
+{
+  "window_start": "2023-10-26T08:00:00",
+  "window_end": "2023-10-26T11:00:00",
+  "messages": [
+    {
+      "channel": "random",
+      "ts": "1698310800.001",
+      "user": "U001RD",
+      "text": "Morning everyone! Great weather today",
+      "timestamp": "2023-10-26T08:00:00"
+    },
+    {
+      "channel": "random",
+      "ts": "1698310860.002",
+      "user": "U002RD",
+      "text": "Yeah, perfect for the weekend!",
+      "timestamp": "2023-10-26T08:01:00"
+    },
+    {
+      "channel": "supply-chain",
+      "ts": "1698310920.003",
+      "user": "U001SC",
+      "text": "Team - got some concerning news from PowerCell Systems",
+      "timestamp": "2023-10-26T08:02:00"
+    },
+    {
+      "channel": "supply-chain",
+      "ts": "1698310980.004",
+      "user": "U002SC",
+      "text": "About the battery module? What's going on?",
+      "timestamp": "2023-10-26T08:03:00"
+    },
+    {
+      "channel": "supply-chain",
+      "ts": "1698311040.005",
+      "user": "U001SC",
+      "text": "They had a quality issue in their manufacturing line. Failed some internal QA tests.",
+      "timestamp": "2023-10-26T08:04:00"
+    },
+    {
+      "channel": "supply-chain",
+      "ts": "1698311100.006",
+      "user": "U003SC",
+      "text": "Oh no. How bad is the delay?",
+      "timestamp": "2023-10-26T08:05:00"
+    },
+    {
+      "channel": "supply-chain",
+      "ts": "1698311160.007",
+      "user": "U001SC",
+      "text": "They need to re-run the batch. Original date was Nov 1, now looking at Nov 20.",
+      "timestamp": "2023-10-26T08:06:00"
+    },
+    {
+      "channel": "supply-chain",
+      "ts": "1698311220.008",
+      "user": "U002SC",
+      "text": "That's almost 3 weeks! Have we confirmed Nov 20 is firm?",
+      "timestamp": "2023-10-26T08:07:00"
+    },
+    {
+      "channel": "supply-chain",
+      "ts": "1698311280.009",
+      "user": "U001SC",
+      "text": "Yes, spoke with their VP of Operations. November 20, 2023 is the committed date.",
+      "timestamp": "2023-10-26T08:08:00"
+    },
+    {
+      "channel": "supply-chain",
+      "ts": "1698311340.010",
+      "user": "U003SC",
+      "text": "This is going to impact avionics testing. The battery integration test was scheduled for Nov 5.",
+      "timestamp": "2023-10-26T08:09:00"
+    },
+    {
+      "channel": "supply-chain",
+      "ts": "1698311400.011",
+      "user": "U001SC",
+      "text": "I know. We need to loop in the test team ASAP.",
+      "timestamp": "2023-10-26T08:10:00"
+    },
+    {
+      "channel": "supply-chain",
+      "ts": "1698311460.012",
+      "user": "U002SC",
+      "text": "Can we expedite or find an alternative supplier?",
+      "timestamp": "2023-10-26T08:11:00"
+    },
+    {
+      "channel": "supply-chain",
+      "ts": "1698311520.013",
+      "user": "U001SC",
+      "text": "Checked with three other vendors. Nobody can meet the specs and deliver before Nov 20. PowerCell is our only option.",
+      "timestamp": "2023-10-26T08:12:00"
+    },
+    {
+      "channel": "supply-chain",
+      "ts": "1698311580.014",
+      "user": "U003SC",
+      "text": "Understood. I'll update the tracking system with the new battery module date: November 20, 2023.",
+      "timestamp": "2023-10-26T08:13:00"
+    },
+    {
+      "channel": "random",
+      "ts": "1698311640.015",
+      "user": "U003RD",
+      "text": "Anyone know what's for lunch in the cafeteria today?",
+      "timestamp": "2023-10-26T08:14:00"
+    },
+    {
+      "channel": "random",
+      "ts": "1698311700.016",
+      "user": "U004RD",
+      "text": "I think it's taco Tuesday!",
+      "timestamp": "2023-10-26T08:15:00"
+    },
+    {
+      "channel": "avionics",
+      "ts": "1698311760.017",
+      "user": "U001AV",
+      "text": "Morning avionics team",
+      "timestamp": "2023-10-26T08:16:00"
+    },
+    {
+      "channel": "avionics",
+      "ts": "1698311820.018",
+      "user": "U002AV",
+      "text": "Hey! Ready for the battery integration test next month?",
+      "timestamp": "2023-10-26T08:17:00"
+    },
+    {
+      "channel": "avionics",
+      "ts": "1698311880.019",
+      "user": "U003AV",
+      "text": "Yeah, we have Nov 5 locked in for the battery test. Lab 2 is reserved.",
+      "timestamp": "2023-10-26T08:18:00"
+    },
+    {
+      "channel": "avionics",
+      "ts": "1698311940.020",
+      "user": "U001AV",
+      "text": "Perfect. That feeds into the full system test on Nov 20.",
+      "timestamp": "2023-10-26T08:19:00"
+    },
+    {
+      "channel": "avionics",
+      "ts": "1698312000.021",
+      "user": "U002AV",
+      "text": "Wait, I'm seeing something in supply-chain channel... battery module delayed to Nov 20?",
+      "timestamp": "2023-10-26T08:20:00"
+    },
+    {
+      "channel": "avionics",
+      "ts": "1698312060.022",
+      "user": "U003AV",
+      "text": "WHAT? Our test is Nov 5. We can't test without the battery!",
+      "timestamp": "2023-10-26T08:21:00"
+    },
+    {
+      "channel": "avionics",
+      "ts": "1698312120.023",
+      "user": "U001AV",
+      "text": "This is bad. The battery test is a hard dependency for the system flight test.",
+      "timestamp": "2023-10-26T08:22:00"
+    },
+    {
+      "channel": "avionics",
+      "ts": "1698312180.024",
+      "user": "U002AV",
+      "text": "Let me think... if battery arrives Nov 20, we'd need at least 3 days for integration test setup.",
+      "timestamp": "2023-10-26T08:23:00"
+    },
+    {
+      "channel": "avionics",
+      "ts": "1698312240.025",
+      "user": "U003AV",
+      "text": "So earliest we could run battery integration test is like... November 23?",
+      "timestamp": "2023-10-26T08:24:00"
+    },
+    {
+      "channel": "avionics",
+      "ts": "1698312300.026",
+      "user": "U001AV",
+      "text": "That's cutting it really close. System flight test is scheduled for Nov 20.",
+      "timestamp": "2023-10-26T08:25:00"
+    },
+    {
+      "channel": "avionics",
+      "ts": "1698312360.027",
+      "user": "U002AV",
+      "text": "We can't run the system test without completing battery integration first. It's a critical blocker.",
+      "timestamp": "2023-10-26T08:26:00"
+    },
+    {
+      "channel": "avionics",
+      "ts": "1698312420.028",
+      "user": "U003AV",
+      "text": "So if battery test slips to Nov 23, system test would have to move to... late November at earliest?",
+      "timestamp": "2023-10-26T08:27:00"
+    },
+    {
+      "channel": "avionics",
+      "ts": "1698312480.029",
+      "user": "U001AV",
+      "text": "This is a cascade failure. System test delay means we put the Q4 flight readiness milestone at serious risk.",
+      "timestamp": "2023-10-26T08:28:00"
+    },
+    {
+      "channel": "avionics",
+      "ts": "1698312540.030",
+      "user": "U002AV",
+      "text": "Q4 flight readiness is Nov 30. That's a regulatory deadline - we can't miss it.",
+      "timestamp": "2023-10-26T08:29:00"
+    },
+    {
+      "channel": "avionics",
+      "ts": "1698312600.031",
+      "user": "U003AV",
+      "text": "If system test slips past Nov 20, we have basically zero margin for any issues.",
+      "timestamp": "2023-10-26T08:30:00"
+    },
+    {
+      "channel": "avionics",
+      "ts": "1698312660.032",
+      "user": "U001AV",
+      "text": "We need to escalate this to management immediately. This is critical path.",
+      "timestamp": "2023-10-26T08:31:00"
+    },
+    {
+      "channel": "random",
+      "ts": "1698312720.033",
+      "user": "U005RD",
+      "text": "Who wants to play ping pong at lunch?",
+      "timestamp": "2023-10-26T08:32:00"
+    },
+    {
+      "channel": "random",
+      "ts": "1698312780.034",
+      "user": "U006RD",
+      "text": "Count me in!",
+      "timestamp": "2023-10-26T08:33:00"
+    },
+    {
+      "channel": "avionics",
+      "ts": "1698312840.035",
+      "user": "U004AV",
+      "text": "Hey, anyone tracking the Q4 flight readiness milestone?",
+      "timestamp": "2023-10-26T08:34:00"
+    },
+    {
+      "channel": "avionics",
+      "ts": "1698312900.036",
+      "user": "U001AV",
+      "text": "Yeah, it's locked for November 30. That's our FAA certification deadline.",
+      "timestamp": "2023-10-26T08:35:00"
+    },
+    {
+      "channel": "avionics",
+      "ts": "1698312960.037",
+      "user": "U004AV",
+      "text": "What's the critical path? System flight test on Nov 20?",
+      "timestamp": "2023-10-26T08:36:00"
+    },
+    {
+      "channel": "avionics",
+      "ts": "1698313020.038",
+      "user": "U001AV",
+      "text": "Correct. System test must complete by Nov 20 to have buffer for Q4 readiness on Nov 30.",
+      "timestamp": "2023-10-26T08:37:00"
+    },
+    {
+      "channel": "avionics",
+      "ts": "1698313080.039",
+      "user": "U002AV",
+      "text": "But wait - if battery test slips to Nov 23, that's AFTER the system test date!",
+      "timestamp": "2023-10-26T08:38:00"
+    },
+    {
+      "channel": "avionics",
+      "ts": "1698313140.040",
+      "user": "U004AV",
+      "text": "Oh no... system test depends on battery test completion. We can't run it before Nov 23.",
+      "timestamp": "2023-10-26T08:39:00"
+    },
+    {
+      "channel": "avionics",
+      "ts": "1698313200.041",
+      "user": "U001AV",
+      "text": "This means system test would have to slip to late November at earliest.",
+      "timestamp": "2023-10-26T08:40:00"
+    },
+    {
+      "channel": "avionics",
+      "ts": "1698313260.042",
+      "user": "U003AV",
+      "text": "That puts Q4 flight readiness at serious risk. We'd have almost zero margin.",
+      "timestamp": "2023-10-26T08:41:00"
+    },
+    {
+      "channel": "avionics",
+      "ts": "1698313320.043",
+      "user": "U002AV",
+      "text": "This is a cascading failure. Battery delay → battery test delay → system test delay → Q4 milestone at risk!",
+      "timestamp": "2023-10-26T08:42:00"
+    },
+    {
+      "channel": "random",
+      "ts": "1698313380.044",
+      "user": "U007RD",
+      "text": "Is there a team meeting today?",
+      "timestamp": "2023-10-26T08:43:00"
+    },
+    {
+      "channel": "random",
+      "ts": "1698313440.045",
+      "user": "U008RD",
+      "text": "Nope, all clear!",
+      "timestamp": "2023-10-26T08:44:00"
+    },
+    {
+      "channel": "supply-chain",
+      "ts": "1698313500.046",
+      "user": "U004SC",
+      "text": "Following up on the battery delay - has anyone calculated the downstream impact?",
+      "timestamp": "2023-10-26T08:45:00"
+    },
+    {
+      "channel": "supply-chain",
+      "ts": "1698313560.047",
+      "user": "U001SC",
+      "text": "Good question. Battery arrives Nov 20, battery test would be Nov 23 at earliest.",
+      "timestamp": "2023-10-26T08:46:00"
+    },
+    {
+      "channel": "supply-chain",
+      "ts": "1698313620.048",
+      "user": "U004SC",
+      "text": "And system flight test depends on battery test, so that slips too.",
+      "timestamp": "2023-10-26T08:47:00"
+    },
+    {
+      "channel": "supply-chain",
+      "ts": "1698313680.049",
+      "user": "U002SC",
+      "text": "Which means Q4 flight readiness on Nov 30 has basically zero buffer. That's a regulatory deadline.",
+      "timestamp": "2023-10-26T08:48:00"
+    },
+    {
+      "channel": "supply-chain",
+      "ts": "1698313740.050",
+      "user": "U001SC",
+      "text": "This is worse than I thought. One part delay cascading to a critical milestone.",
+      "timestamp": "2023-10-26T08:49:00"
+    },
+    {
+      "channel": "supply-chain",
+      "ts": "1698313800.051",
+      "user": "U004SC",
+      "text": "We need to explore expedited shipping or alternative suppliers immediately.",
+      "timestamp": "2023-10-26T08:50:00"
+    },
+    {
+      "channel": "supply-chain",
+      "ts": "1698313860.052",
+      "user": "U001SC",
+      "text": "Agreed. Let me reach out to PowerCell again and see if they can commit to anything earlier than Nov 20.",
+      "timestamp": "2023-10-26T08:51:00"
+    }
+  ]
+}
