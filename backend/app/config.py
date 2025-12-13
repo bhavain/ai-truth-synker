@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     openai_api_key: str
 
     # LangSmith Configuration
-    langsmith_tracing_v2: bool = True
+    langsmith_tracing: bool = True
     langsmith_endpoint: str = "https://api.smith.langchain.com"
     langsmith_api_key: str = ""
     langsmith_project: str = "truth_engine_dev"
