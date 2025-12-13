@@ -2,7 +2,7 @@
 
 import logging
 from langchain_openai import ChatOpenAI
-from langchain.schema import SystemMessage, HumanMessage
+from langchain_core.messages import SystemMessage, HumanMessage
 
 from app.config import get_settings
 from app.models import GraphState, MessageClass
