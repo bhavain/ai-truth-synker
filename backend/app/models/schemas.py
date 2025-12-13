@@ -201,6 +201,85 @@ class JudgeVerdict(BaseModel):
 
 
 # ============================================================================
+# Batch Processing Models
+# ============================================================================
+
+
+class BatchSlackMessages(BaseModel):
+    """Batch of messages for processing"""
+
+    messages: list[SlackMessage] = Field(..., description="List of Slack messages to process")
+    window_start: datetime = Field(..., description="Start of time window")
+    window_end: datetime = Field(..., description="End of time window")
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "messages": [
+                    {
+                        "channel": "supply-chain",
+                        "ts": "1698163200.123456",
+                        "user": "U123ABC",
+                        "text": "HB900 delayed 2 weeks",
+                    }
+                ],
+                "window_start": "2023-10-24T10:00:00",
+                "window_end": "2023-10-24T10:30:00",
+            }
+        }
+
+
+class ConversationThread(BaseModel):
+    """Organized conversation thread from a channel"""
+
+    channel: str = Field(..., description="Channel name")
+    messages: list[SlackMessage] = Field(..., description="Chronologically sorted messages")
+    window_start: datetime = Field(..., description="First message timestamp")
+    window_end: datetime = Field(..., description="Last message timestamp")
+
+    @property
+    def duration_minutes(self) -> int:
+        """Calculate conversation duration in minutes"""
+        delta = self.window_end - self.window_start
+        return int(delta.total_seconds() / 60)
+
+    @property
+    def message_count(self) -> int:
+        """Number of messages in thread"""
+        return len(self.messages)
+
+
+class ExtractedUpdate(BaseModel):
+    """Single entity update extracted from conversation"""
+
+    entity_id: str = Field(..., description="Entity identifier")
+    entity_name: Optional[str] = Field(None, description="Human-readable name")
+    status: Optional[EntityStatus] = Field(None, description="Updated status")
+    milestone_date: Optional[date] = Field(None, description="Updated milestone date")
+    summary: str = Field(..., description="Summary of what was discussed")
+    confidence: float = Field(..., ge=0.0, le=1.0, description="Extraction confidence")
+    supporting_messages: list[str] = Field(
+        default_factory=list, description="Message timestamps that support this extraction"
+    )
+    reasoning: str = Field(..., description="Agent's reasoning for this extraction")
+    tools_used: list[str] = Field(default_factory=list, description="Tools agent used")
+
+
+class BatchProcessingResult(BaseModel):
+    """Result of batch processing"""
+
+    total_messages: int
+    signal_messages: int
+    noise_messages: int
+    threads_by_channel: dict[str, int]
+    total_updates: int
+    conflicts_detected: int
+    agent_tool_usage: dict[str, list[str]] = Field(
+        default_factory=dict, description="Tools used by each agent"
+    )
+
+
+# ============================================================================
 # LangGraph State
 # ============================================================================
 

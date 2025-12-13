@@ -15,6 +15,10 @@ from .schemas import (
     JudgeVerdict,
     GraphState,
     EvidenceReference,
+    BatchSlackMessages,
+    ConversationThread,
+    ExtractedUpdate,
+    BatchProcessingResult,
 )
 from .enums import EntityType, EntityStatus, DependencyType, MessageClass, ConflictSeverity
 
@@ -33,4 +37,8 @@ __all__ = [
     "JudgeVerdict",
     "GraphState",
     "EvidenceReference",
+    "BatchSlackMessages",
+    "ConversationThread",
+    "ExtractedUpdate",
+    "BatchProcessingResult",
 ]
