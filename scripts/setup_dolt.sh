@@ -30,6 +30,11 @@ echo ""
 echo "Checking service status..."
 docker-compose ps
 
+# Initialize Dolt authentication
+echo ""
+echo "Initializing Dolt authentication..."
+bash "$(dirname "$0")/init-dolt-auth.sh"
+
 echo ""
 echo "========================================"
 echo "Services are ready!"
