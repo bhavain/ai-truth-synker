@@ -29,7 +29,7 @@ async def main():
     print()
 
     # Load test data
-    test_data_path = Path(__file__).parent.parent / "data" / "batch_test_messages.json"
+    test_data_path = Path(__file__).parent.parent / "data" / "messages" / "scenario_hb900_delay.json"
 
     print(f"Loading test data from: {test_data_path}")
 

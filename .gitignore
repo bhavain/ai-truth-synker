@@ -59,3 +59,5 @@ docker-volumes/
 certs/
 
 .langgraph_api/
+
+.mcp.json

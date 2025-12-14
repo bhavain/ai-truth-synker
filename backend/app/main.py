@@ -25,7 +25,7 @@ async def lifespan(app: FastAPI):
     logger.info("Starting Truth Engine Batch Processing MVP...")
     settings = get_settings()
     logger.info(f"Environment: {settings.environment}")
-    logger.info(f"LangSmith Tracing: {settings.langsmith_tracing_v2}")
+    logger.info(f"LangSmith Tracing: {settings.langsmith_tracing}")
     yield
     logger.info("Shutting down Truth Engine API...")
 
