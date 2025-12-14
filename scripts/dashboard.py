@@ -86,7 +86,7 @@ def load_dependencies() -> List[Dict[str, Any]]:
 def load_notifications() -> List[Dict[str, Any]]:
     """Load notifications from notifications.json"""
     try:
-        notifications_path = Path(__file__).parent.parent / "notifications.json"
+        notifications_path = Path(__file__).parent.parent / "backend" / "notifications.json"
         if notifications_path.exists():
             with open(notifications_path, "r") as f:
                 raw_notifications = json.load(f)
@@ -228,13 +228,14 @@ def create_dependency_graph(entities: List[Dict], dependencies: List[Dict]) -> g
             y = level * 3.0  # Vertical spacing of 3.0 units
             pos[node_id] = (x, y)
 
-    # Define colors
+    # Define colors with better contrast and modern palette
     status_colors = {
-        'COMPLETED': '#28a745',     # green
-        'ON_TRACK': '#17a2b8',      # blue
-        'AT_RISK': '#ffc107',       # yellow
-        'BLOCKED': '#dc3545',       # red
-        'IN_PROGRESS': '#fd7e14'    # orange
+        'COMPLETED': '#10b981',     # emerald green
+        'ON_TRACK': '#3b82f6',      # bright blue
+        'AT_RISK': '#f59e0b',       # amber
+        'BLOCKED': '#ef4444',       # red
+        'DELAYED': '#f97316',       # orange
+        'CRITICAL': '#dc2626'       # dark red
     }
 
     type_shapes = {
@@ -251,17 +252,20 @@ def create_dependency_graph(entities: List[Dict], dependencies: List[Dict]) -> g
         x1, y1 = pos[edge[1]]
 
         dep_type = edge[2].get('dep_type', 'UNKNOWN')
-        color = '#dc3545' if dep_type == 'CRITICAL_BLOCKER' else '#6c757d'
-        width = 3 if dep_type == 'CRITICAL_BLOCKER' else 1
+        # BLOCKER = red/thick, INFORMATIONAL = gray/thin
+        color = '#ef4444' if dep_type == 'CRITICAL_BLOCKER' else '#94a3b8'
+        width = 3 if dep_type == 'CRITICAL_BLOCKER' else 1.5
+        dash = 'solid' if dep_type == 'CRITICAL_BLOCKER' else 'dash'
 
         edge_trace = go.Scatter(
             x=[x0, x1, None],
             y=[y0, y1, None],
             mode='lines',
-            line=dict(width=width, color=color),
+            line=dict(width=width, color=color, dash=dash),
             hoverinfo='text',
-            text=f"{edge[0]} → {edge[1]}<br>Type: {dep_type}",
-            showlegend=False
+            text=f"<b>{edge[0]} → {edge[1]}</b><br>Type: {dep_type}<br>Confidence: {edge[2].get('confidence', 'N/A')}",
+            showlegend=False,
+            opacity=0.8 if dep_type == 'CRITICAL_BLOCKER' else 0.5
         )
         edge_traces.append(edge_trace)
 
@@ -302,12 +306,13 @@ def create_dependency_graph(entities: List[Dict], dependencies: List[Dict]) -> g
         hoverinfo='text',
         text=[entity_map[n]['id'] for n in G.nodes()],
         textposition="top center",
-        textfont=dict(size=8),
+        textfont=dict(size=9, family='Arial, sans-serif', color='#1f2937'),
         hovertext=node_text,
         marker=dict(
             size=node_size,
             color=node_color,
-            line=dict(width=2, color='white')
+            line=dict(width=2.5, color='#ffffff'),
+            opacity=0.9
         ),
         showlegend=False
     )
@@ -316,14 +321,18 @@ def create_dependency_graph(entities: List[Dict], dependencies: List[Dict]) -> g
     fig = go.Figure(data=edge_traces + [node_trace])
 
     fig.update_layout(
-        title="Entity Dependency Graph (Hierarchical: Requirements → Parts → Tests → Milestones)",
+        title=dict(
+            text="Entity Dependency Graph (Hierarchical: Requirements → Parts → Tests → Milestones)",
+            font=dict(size=18, family='Arial, sans-serif', color='#111827')
+        ),
         showlegend=False,
         hovermode='closest',
-        margin=dict(b=40, l=40, r=40, t=60),
+        margin=dict(b=40, l=40, r=40, t=80),
         xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
         yaxis=dict(showgrid=False, zeroline=False, showticklabels=False, scaleanchor="x", scaleratio=1),
-        height=700,
-        plot_bgcolor='rgba(250,250,250,1)'
+        height=800,
+        plot_bgcolor='#f8fafc',
+        paper_bgcolor='#ffffff'
     )
 
     return fig
@@ -409,56 +418,79 @@ def render_entity_timeline():
     history = get_entity_history(selected_entity)
 
     if not history:
-        st.info(f"No commit history found for {selected_entity}")
+        st.info(f"No commit history found for {selected_entity}. Entity timeline will populate as entities are updated over time.")
         return
 
-    # Create timeline dataframe
+    # Create timeline dataframe - show ALL changes (status OR date)
     timeline_data = []
     for change in history:
-        if change['from_milestone_date'] and change['to_milestone_date']:
-            if change['from_milestone_date'] != change['to_milestone_date']:
-                timeline_data.append({
-                    'Commit Date': change['to_commit_date'],
-                    'Previous Date': change['from_milestone_date'],
-                    'New Date': change['to_milestone_date'],
-                    'Status Change': f"{change.get('from_status', 'N/A')} → {change.get('to_status', 'N/A')}"
-                })
+        # Check if status changed
+        status_changed = change.get('from_status') != change.get('to_status')
+
+        # Check if date changed
+        date_changed = (
+            change.get('from_milestone_date') and
+            change.get('to_milestone_date') and
+            change['from_milestone_date'] != change['to_milestone_date']
+        )
+
+        # Show entry if EITHER status or date changed
+        if status_changed or date_changed:
+            timeline_data.append({
+                'Commit Date': change['to_commit_date'],
+                'Status Change': f"{change.get('from_status', 'N/A')} → {change.get('to_status', 'N/A')}",
+                'Date Change': f"{change.get('from_milestone_date', 'N/A')} → {change.get('to_milestone_date', 'N/A')}" if date_changed else 'No change',
+                'Commit': change.get('to_commit', 'N/A')[:8] if change.get('to_commit') else 'N/A'
+            })
 
     if timeline_data:
         df = pd.DataFrame(timeline_data)
         st.dataframe(df, width='stretch')
 
-        # Visualize date changes
-        fig = go.Figure()
+        # Visualize timeline with status and date changes
+        st.markdown("### Change History Visualization")
 
-        dates = []
-        labels = []
-        for idx, row in df.iterrows():
-            dates.append(row['Previous Date'])
-            labels.append(f"Previous: {row['Previous Date']}")
-            dates.append(row['New Date'])
-            labels.append(f"Updated: {row['New Date']}")
+        # Show only rows with actual date changes for visualization
+        date_change_rows = [row for idx, row in df.iterrows() if row['Date Change'] != 'No change']
 
-        if dates:
-            fig.add_trace(go.Scatter(
-                x=list(range(len(dates))),
-                y=dates,
-                mode='lines+markers',
-                name='Milestone Date',
-                text=labels,
-                marker=dict(size=10)
-            ))
+        if date_change_rows:
+            fig = go.Figure()
 
-            fig.update_layout(
-                title=f"Milestone Date Changes for {selected_entity}",
-                xaxis_title="Change Number",
-                yaxis_title="Date",
-                height=400
-            )
+            # Parse dates for visualization
+            dates = []
+            labels = []
+            for row in date_change_rows:
+                parts = row['Date Change'].split(' → ')
+                if len(parts) == 2:
+                    dates.append(parts[0])
+                    labels.append(f"From: {parts[0]}")
+                    dates.append(parts[1])
+                    labels.append(f"To: {parts[1]}")
 
-            st.plotly_chart(fig, width='stretch')
+            if dates:
+                fig.add_trace(go.Scatter(
+                    x=list(range(len(dates))),
+                    y=dates,
+                    mode='lines+markers',
+                    name='Milestone Date',
+                    text=labels,
+                    marker=dict(size=10, color='#3b82f6'),
+                    line=dict(width=2, color='#3b82f6')
+                ))
+
+                fig.update_layout(
+                    title=f"Milestone Date Changes for {selected_entity}",
+                    xaxis_title="Change Number",
+                    yaxis_title="Date",
+                    height=400,
+                    plot_bgcolor='#f8fafc'
+                )
+
+                st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("No milestone date changes in this history. Only status changes were recorded.")
     else:
-        st.info("No milestone date changes detected in history")
+        st.info("No changes detected in history. Timeline will populate as entities are updated through the workflow.")
 
 
 def main():
@@ -511,19 +543,38 @@ def main():
             fig = create_dependency_graph(entities, dependencies)
             st.plotly_chart(fig, width='stretch')
 
-            # Legend
+            # Legend with improved styling
             st.markdown("### Legend")
-            col1, col2 = st.columns(2)
+            col1, col2, col3 = st.columns(3)
             with col1:
                 st.markdown("**Status Colors:**")
-                st.markdown("🟢 COMPLETED | 🔵 ON_TRACK | 🟡 AT_RISK | 🔴 BLOCKED | 🟠 IN_PROGRESS")
-                st.markdown("**Layout:**")
-                st.markdown("Bottom → Top: REQUIREMENTS → PARTS → TESTS → MILESTONES")
+                st.markdown("""
+                - 🟢 **COMPLETED** - Done
+                - 🔵 **ON_TRACK** - Progressing normally
+                - 🟡 **AT_RISK** - Potential issues
+                - 🔴 **BLOCKED** - Cannot proceed
+                - 🟠 **DELAYED** - Behind schedule
+                - ⚫ **CRITICAL** - Urgent attention needed
+                """)
             with col2:
                 st.markdown("**Dependency Types:**")
-                st.markdown("**━━ CRITICAL_BLOCKER** (red, thick) - Hard blocking dependency")
-                st.markdown("**─ SOFT_DEPENDENCY** (gray, thin) - Nice to have")
-                st.markdown("**─ INFORMATIONAL** (gray, thin) - Reference only")
+                st.markdown("""
+                - **━━ BLOCKER** (red, solid, thick)
+                  Must complete before parent
+                - **┄┄ INFORMATIONAL** (gray, dashed, thin)
+                  Reference/context only
+                """)
+            with col3:
+                st.markdown("**Layout:**")
+                st.markdown("""
+                **Bottom → Top:**
+                1. REQUIREMENTS
+                2. PARTS
+                3. TESTS
+                4. MILESTONES
+
+                *Larger nodes = Milestones*
+                """)
         else:
             st.warning("No entity or dependency data available. Please run the workflow first.")
 
