@@ -140,8 +140,9 @@ class DoltClient:
                     ),
                 )
 
-                # Dolt commit
-                cursor.execute("CALL DOLT_COMMIT('-a', '-m', %s)", (commit_message,))
+                # Dolt commit - add tables first to handle new tables
+                cursor.execute("CALL DOLT_ADD('.')")
+                cursor.execute("CALL DOLT_COMMIT('-m', %s)", (commit_message,))
 
         logger.info(f"Inserted entity {entity.id}")
 

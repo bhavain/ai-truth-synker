@@ -14,7 +14,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "backend"))
 
 from app.db.dolt_client import DoltClient
 from app.db.vector_store import VectorStore
-from app.config import settings
+from app.config import get_settings
+from app.db.seed import bootstrap_database
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -39,6 +40,7 @@ def clear_dolt_data() -> None:
     logger.info("Clearing Dolt data...")
     try:
         dolt_client = DoltClient()
+        db_name = dolt_client.connection_params['database']
 
         # Truncate tables
         with dolt_client.get_connection() as conn:
@@ -47,6 +49,7 @@ def clear_dolt_data() -> None:
             cursor.execute("TRUNCATE TABLE dependencies")
             cursor.execute("TRUNCATE TABLE project_entities")
             cursor.execute("SET FOREIGN_KEY_CHECKS=1")
+            cursor.execute(f'DROP DATABASE IF EXISTS {db_name}')
             conn.commit()
 
         logger.info("✓ Dolt data cleared")
@@ -77,80 +80,11 @@ def clear_chroma_collections() -> None:
         raise
 
 
-def reseed_entities() -> None:
-    """Load entities and dependencies from seed_entities.json"""
-    logger.info("Reseeding entities...")
-    try:
-        # Load seed data
-        seed_path = Path(__file__).parent.parent / "data" / "seed_entities.json"
-        with open(seed_path, "r") as f:
-            seed_data = json.load(f)
-
-        dolt_client = DoltClient()
-
-        # Insert entities
-        for entity in seed_data["entities"]:
-            dolt_client.upsert_entity(
-                entity_id=entity["id"],
-                name=entity["name"],
-                entity_type=entity["entity_type"],
-                status=entity["status"],
-                milestone_date=entity["milestone_date"],
-                owner_team=entity["owner_team"],
-                metadata=entity["metadata"],
-                source="seed_data",
-            )
-
-        # Insert dependencies
-        for dep in seed_data["dependencies"]:
-            dolt_client.add_dependency(
-                parent_id=dep["parent_id"],
-                child_id=dep["child_id"],
-                dependency_type=dep["dependency_type"],
-                confidence=dep["confidence"],
-                source="seed_data",
-            )
-
-        # Commit to Dolt
-        dolt_client.commit_changes(
-            message="Initial seed: Loaded entities and dependencies",
-            author="reset_data_script",
-        )
-
-        logger.info(f"✓ Seeded {len(seed_data['entities'])} entities and {len(seed_data['dependencies'])} dependencies")
-    except Exception as e:
-        logger.error(f"Error seeding entities: {e}")
-        raise
-
-
-def reseed_context() -> None:
-    """Load historical context into ChromaDB"""
-    logger.info("Reseeding ChromaDB context...")
-    try:
-        context_path = Path(__file__).parent.parent / "data" / "bootstrap_context.json"
-        with open(context_path, "r") as f:
-            contexts = json.load(f)
-
-        vector_store = VectorStore()
-
-        for ctx in contexts:
-            vector_store.add_context(
-                channel=ctx["channel"],
-                content=ctx["content"],
-                metadata=ctx["metadata"],
-            )
-
-        logger.info(f"✓ Seeded {len(contexts)} historical context documents")
-    except Exception as e:
-        logger.error(f"Error seeding context: {e}")
-        raise
-
-
 def clear_notifications_json() -> None:
     """Clear the notifications.json file"""
     logger.info("Clearing notifications...")
     try:
-        notifications_path = Path(__file__).parent.parent / "notifications.json"
+        notifications_path = Path(__file__).parent.parent / "backend" / "notifications.json"
         with open(notifications_path, "w") as f:
             json.dump([], f)
         logger.info("✓ Notifications cleared")
@@ -223,8 +157,8 @@ def main():
         clear_notifications_json()
 
         # Step 2: Reseed with fresh data
-        reseed_entities()
-        reseed_context()
+        data_dir = Path(__file__).parent.parent / "data"
+        bootstrap_database(data_dir)
 
         # Step 3: Load scenario messages
         copy_scenario_messages(scenario_key)

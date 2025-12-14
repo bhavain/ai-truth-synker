@@ -23,8 +23,6 @@ if __name__ == "__main__":
     print("Make sure Docker services are running:")
     print("  $ docker-compose up -d")
     print()
-    input("Press Enter to continue...")
-    print()
 
     # Run bootstrap
     data_dir = Path(__file__).parent.parent / "data"

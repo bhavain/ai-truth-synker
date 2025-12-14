@@ -23,21 +23,65 @@ def load_seed_entities(data_dir: Path = Path("data")) -> None:
     with open(seed_file, "r") as f:
         seed_data = json.load(f)
 
-    # Insert entities
-    for entity_data in seed_data["entities"]:
-        entity = ProjectEntity(**entity_data)
-        try:
-            dolt.insert_entity(entity, f"Seed: Add {entity.name}")
-        except Exception as e:
-            logger.warning(f"Entity {entity.id} may already exist: {e}")
+    # Insert all entities without individual commits
+    with dolt.get_connection() as conn:
+        cursor = conn.cursor()
 
-    # Insert dependencies
-    for dep_data in seed_data["dependencies"]:
-        dependency = Dependency(**dep_data)
+        # Insert entities
+        for entity_data in seed_data["entities"]:
+            entity = ProjectEntity(**entity_data)
+            try:
+                cursor.execute(
+                    """
+                    INSERT INTO project_entities
+                    (id, name, entity_type, status, milestone_date, owner_team, metadata)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    """,
+                    (
+                        entity.id,
+                        entity.name,
+                        entity.entity_type.value,
+                        entity.status.value,
+                        entity.milestone_date,
+                        entity.owner_team,
+                        json.dumps(entity.metadata) if entity.metadata else None,
+                    ),
+                )
+            except Exception as e:
+                logger.warning(f"Entity {entity.id} may already exist: {e}")
+
+        # Insert dependencies
+        for dep_data in seed_data["dependencies"]:
+            dependency = Dependency(**dep_data)
+            try:
+                cursor.execute(
+                    """
+                    INSERT INTO dependencies
+                    (parent_id, child_id, dependency_type, confidence)
+                    VALUES (%s, %s, %s, %s)
+                    ON DUPLICATE KEY UPDATE
+                        dependency_type = VALUES(dependency_type),
+                        confidence = VALUES(confidence)
+                    """,
+                    (
+                        dependency.parent_id,
+                        dependency.child_id,
+                        dependency.dependency_type.value,
+                        dependency.confidence,
+                    ),
+                )
+            except Exception as e:
+                logger.warning(f"Dependency may already exist: {e}")
+
+        # Single commit for all seed data
         try:
-            dolt.insert_dependency(dependency)
+            cursor.execute("CALL DOLT_ADD('.')")
+            cursor.execute("CALL DOLT_COMMIT('-m', 'Seed: Initial entity and dependency data')")
+            logger.info(f"✓ Committed {len(seed_data['entities'])} entities and {len(seed_data['dependencies'])} dependencies")
         except Exception as e:
-            logger.warning(f"Dependency may already exist: {e}")
+            if 'nothing to commit' not in str(e):
+                raise
+            logger.info("Data already committed")
 
     logger.info(f"Loaded {len(seed_data['entities'])} entities and {len(seed_data['dependencies'])} dependencies")
 
