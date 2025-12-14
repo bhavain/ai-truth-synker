@@ -86,14 +86,15 @@ def notification_node(state: BatchGraphState) -> BatchGraphState:
             "timestamp": verdict.decided_at.isoformat()
         }
 
-        # Notify all involved teams
-        for team in verdict.notified_teams:
-            try:
-                notify_team(team, notification_payload)
-                notifications_sent += 1
-                logger.info(f"   ✓ Notified #{team}")
-            except Exception as e:
-                logger.error(f"   ✗ Failed to notify #{team}: {e}")
+        # Send single general notification (not team-specific)
+        # Use a general "conflicts" channel or file
+        try:
+            notify_team("conflicts", notification_payload)  # General conflict channel
+            notifications_sent += 1
+            affected_teams = ", ".join(verdict.notified_teams)
+            logger.info(f"   ✓ Notified conflicts channel (affects: {affected_teams})")
+        except Exception as e:
+            logger.error(f"   ✗ Failed to send notification: {e}")
 
     logger.info(f"\n✓ Sent {notifications_sent} notifications")
 
