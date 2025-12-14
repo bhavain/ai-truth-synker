@@ -19,6 +19,7 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).parent.parent / "backend"))
 
 from app.db.dolt_client import DoltClient
+import pymysql
 
 # Page configuration
 st.set_page_config(
@@ -46,14 +47,20 @@ def load_entities() -> List[Dict[str, Any]]:
             """)
             entities = cursor.fetchall()
 
-            # Convert metadata JSON string to dict
+            # Convert to list of dicts and handle metadata
+            result = []
             for entity in entities:
-                if isinstance(entity['metadata'], str):
-                    entity['metadata'] = json.loads(entity['metadata'])
+                entity_dict = dict(entity)
+                # metadata is already a dict with DictCursor, but handle string case
+                if isinstance(entity_dict.get('metadata'), str):
+                    entity_dict['metadata'] = json.loads(entity_dict['metadata'])
+                result.append(entity_dict)
 
-            return entities
+            return result
     except Exception as e:
         st.error(f"Error loading entities: {e}")
+        import traceback
+        st.error(traceback.format_exc())
         return []
 
 
@@ -67,9 +74,12 @@ def load_dependencies() -> List[Dict[str, Any]]:
                 SELECT parent_id, child_id, dependency_type, confidence
                 FROM dependencies
             """)
-            return cursor.fetchall()
+            deps = cursor.fetchall()
+            return [dict(dep) for dep in deps]
     except Exception as e:
         st.error(f"Error loading dependencies: {e}")
+        import traceback
+        st.error(traceback.format_exc())
         return []
 
 
@@ -79,11 +89,51 @@ def load_notifications() -> List[Dict[str, Any]]:
         notifications_path = Path(__file__).parent.parent / "notifications.json"
         if notifications_path.exists():
             with open(notifications_path, "r") as f:
-                notifications = json.load(f)
-                return notifications if isinstance(notifications, list) else []
+                raw_notifications = json.load(f)
+
+                # Handle both old flat format and new nested format
+                notifications = []
+                if isinstance(raw_notifications, list):
+                    for notif in raw_notifications:
+                        # If notification has 'data' key, extract it (new format)
+                        if 'data' in notif and isinstance(notif['data'], dict):
+                            # Transform to expected format
+                            data = notif['data']
+                            transformed = {
+                                'conflict': {
+                                    'conflict_id': data.get('conflict_id', 'unknown'),
+                                    'description': f"{data.get('parent_entity', {}).get('name', 'Unknown')} depends on {data.get('child_entity', {}).get('name', 'Unknown')}",
+                                    'severity': 'CRITICAL' if data.get('verdict') == 'CRITICAL_CONFLICT' else 'MEDIUM',
+                                    'affected_entity_ids': [
+                                        data.get('parent_entity', {}).get('id'),
+                                        data.get('child_entity', {}).get('id')
+                                    ]
+                                },
+                                'verdict': {
+                                    'verdict': data.get('verdict'),
+                                    'confidence': data.get('confidence', 0),
+                                    'reasoning': data.get('reasoning', ''),
+                                    'evidence_summary': '\n'.join([ev.get('summary', '') for ev in data.get('evidence', [])]),
+                                    'recommendation': data.get('recommended_action', '')
+                                },
+                                'affected_teams': [
+                                    data.get('parent_entity', {}).get('owner_team'),
+                                    data.get('child_entity', {}).get('owner_team')
+                                ],
+                                'recommended_actions': [data.get('recommended_action', '')] if data.get('recommended_action') else [],
+                                'timestamp': notif.get('timestamp', data.get('timestamp', ''))
+                            }
+                            notifications.append(transformed)
+                        # Old flat format (keep for backwards compatibility)
+                        elif 'conflict' in notif:
+                            notifications.append(notif)
+
+                return notifications
         return []
     except Exception as e:
         st.error(f"Error loading notifications: {e}")
+        import traceback
+        st.error(traceback.format_exc())
         return []
 
 
@@ -95,7 +145,7 @@ def get_entity_history(entity_id: str) -> List[Dict[str, Any]]:
             cursor = conn.cursor()
 
             # Query dolt_diff to get changes
-            cursor.execute(f"""
+            cursor.execute("""
                 SELECT
                     from_id,
                     from_milestone_date,
@@ -112,14 +162,17 @@ def get_entity_history(entity_id: str) -> List[Dict[str, Any]]:
                 ORDER BY to_commit_date ASC
             """, (entity_id, entity_id))
 
-            return cursor.fetchall()
+            history = cursor.fetchall()
+            return [dict(h) for h in history]
     except Exception as e:
         st.warning(f"Could not load history for {entity_id}: {e}")
+        import traceback
+        st.error(traceback.format_exc())
         return []
 
 
 def create_dependency_graph(entities: List[Dict], dependencies: List[Dict]) -> go.Figure:
-    """Create interactive dependency graph using Plotly"""
+    """Create interactive dependency graph using Plotly with hierarchical layout"""
 
     # Create NetworkX graph
     G = nx.DiGraph()
@@ -145,8 +198,35 @@ def create_dependency_graph(entities: List[Dict], dependencies: List[Dict]) -> g
             confidence=dep['confidence']
         )
 
-    # Use spring layout for positioning
-    pos = nx.spring_layout(G, k=2, iterations=50, seed=42)
+    # Create hierarchical layout based on entity type
+    # Bottom to top: REQUIREMENT → PART → TEST → MILESTONE
+    type_levels = {
+        'REQUIREMENT': 0,
+        'PART': 1,
+        'TEST': 2,
+        'MILESTONE': 3
+    }
+
+    # Calculate positions
+    pos = {}
+    level_counts = {0: 0, 1: 0, 2: 0, 3: 0}
+    level_nodes = {0: [], 1: [], 2: [], 3: []}
+
+    # Group nodes by level
+    for node_id in G.nodes():
+        entity = entity_map[node_id]
+        level = type_levels.get(entity['entity_type'], 1)
+        level_nodes[level].append(node_id)
+        level_counts[level] += 1
+
+    # Position nodes in each level
+    for level, nodes in level_nodes.items():
+        count = len(nodes)
+        for i, node_id in enumerate(sorted(nodes)):
+            # Spread nodes horizontally within their level
+            x = (i - count/2) * 2.0  # Spacing of 2.0 units
+            y = level * 3.0  # Vertical spacing of 3.0 units
+            pos[node_id] = (x, y)
 
     # Define colors
     status_colors = {
@@ -236,14 +316,14 @@ def create_dependency_graph(entities: List[Dict], dependencies: List[Dict]) -> g
     fig = go.Figure(data=edge_traces + [node_trace])
 
     fig.update_layout(
-        title="Entity Dependency Graph",
+        title="Entity Dependency Graph (Hierarchical: Requirements → Parts → Tests → Milestones)",
         showlegend=False,
         hovermode='closest',
-        margin=dict(b=20, l=5, r=5, t=40),
+        margin=dict(b=40, l=40, r=40, t=60),
         xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
-        yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
-        height=600,
-        plot_bgcolor='rgba(240,240,240,0.5)'
+        yaxis=dict(showgrid=False, zeroline=False, showticklabels=False, scaleanchor="x", scaleratio=1),
+        height=700,
+        plot_bgcolor='rgba(250,250,250,1)'
     )
 
     return fig
@@ -346,7 +426,7 @@ def render_entity_timeline():
 
     if timeline_data:
         df = pd.DataFrame(timeline_data)
-        st.dataframe(df, use_container_width=True)
+        st.dataframe(df, width='stretch')
 
         # Visualize date changes
         fig = go.Figure()
@@ -376,7 +456,7 @@ def render_entity_timeline():
                 height=400
             )
 
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch')
     else:
         st.info("No milestone date changes detected in history")
 
@@ -392,7 +472,7 @@ def main():
     with st.sidebar:
         st.header("Controls")
 
-        if st.button("🔄 Refresh Data", use_container_width=True):
+        if st.button("🔄 Refresh Data", width='stretch'):
             st.session_state.last_refresh = datetime.now()
             st.rerun()
 
@@ -407,9 +487,9 @@ def main():
             with dolt_client.get_connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute("SELECT COUNT(*) as count FROM project_entities")
-                entity_count = cursor.fetchone()[0]
+                entity_count = cursor.fetchone()['count']
                 cursor.execute("SELECT COUNT(*) as count FROM dependencies")
-                dep_count = cursor.fetchone()[0]
+                dep_count = cursor.fetchone()['count']
 
                 st.metric("Entities", entity_count)
                 st.metric("Dependencies", dep_count)
@@ -429,21 +509,21 @@ def main():
 
         if entities and dependencies:
             fig = create_dependency_graph(entities, dependencies)
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch')
 
             # Legend
             st.markdown("### Legend")
-            col1, col2, col3 = st.columns(3)
+            col1, col2 = st.columns(2)
             with col1:
                 st.markdown("**Status Colors:**")
                 st.markdown("🟢 COMPLETED | 🔵 ON_TRACK | 🟡 AT_RISK | 🔴 BLOCKED | 🟠 IN_PROGRESS")
+                st.markdown("**Layout:**")
+                st.markdown("Bottom → Top: REQUIREMENTS → PARTS → TESTS → MILESTONES")
             with col2:
-                st.markdown("**Entity Types:**")
-                st.markdown("● PART | ■ TEST | ◆ MILESTONE | ⬡ REQUIREMENT")
-            with col3:
-                st.markdown("**Edge Types:**")
-                st.markdown("━━ CRITICAL_BLOCKER (red)")
-                st.markdown("─ RECOMMENDED (gray)")
+                st.markdown("**Dependency Types:**")
+                st.markdown("**━━ CRITICAL_BLOCKER** (red, thick) - Hard blocking dependency")
+                st.markdown("**─ SOFT_DEPENDENCY** (gray, thin) - Nice to have")
+                st.markdown("**─ INFORMATIONAL** (gray, thin) - Reference only")
         else:
             st.warning("No entity or dependency data available. Please run the workflow first.")
 
