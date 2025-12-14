@@ -1,6 +1,21 @@
 {
   "entities": [
     {
+      "id": "BATTERY_MODULE_001",
+      "name": "Li-Ion Battery Module (48V)",
+      "entity_type": "PART",
+      "status": "ON_TRACK",
+      "milestone_date": "2023-11-01",
+      "owner_team": "supply-chain",
+      "metadata": {
+        "vendor": "PowerCell Systems",
+        "part_number": "BAT-48V-20AH",
+        "voltage_rating": "48V",
+        "capacity_ah": 20,
+        "critical_path": true
+      }
+    },
+    {
       "id": "HB900_DRIVER",
       "name": "H-Bridge Driver (HB-900)",
       "entity_type": "PART",
@@ -12,19 +27,6 @@
         "part_number": "HB-900-REV3",
         "voltage_rating": "5V ±10%",
         "critical_path": true
-      }
-    },
-    {
-      "id": "Q3_INTEGRATION_TEST",
-      "name": "Q3 TVC Actuator Integration Test",
-      "entity_type": "TEST",
-      "status": "ON_TRACK",
-      "milestone_date": "2023-10-15",
-      "owner_team": "avionics",
-      "metadata": {
-        "test_facility": "Lab 3",
-        "duration_hours": 8,
-        "requires_parts": ["HB900_DRIVER", "ACTUATOR_TVC_001"]
       }
     },
     {
@@ -41,19 +43,106 @@
       }
     },
     {
-      "id": "FINAL_ASSEMBLY_Q4",
-      "name": "Q4 Final Assembly Milestone",
+      "id": "BATTERY_INTEGRATION_TEST",
+      "name": "Battery Module Integration Test",
+      "entity_type": "TEST",
+      "status": "ON_TRACK",
+      "milestone_date": "2023-11-05",
+      "owner_team": "avionics",
+      "metadata": {
+        "test_facility": "Lab 2",
+        "duration_hours": 12,
+        "requires_parts": ["BATTERY_MODULE_001"],
+        "test_type": "electrical_integration"
+      }
+    },
+    {
+      "id": "Q3_INTEGRATION_TEST",
+      "name": "Q3 TVC Actuator Integration Test",
+      "entity_type": "TEST",
+      "status": "ON_TRACK",
+      "milestone_date": "2023-10-15",
+      "owner_team": "avionics",
+      "metadata": {
+        "test_facility": "Lab 3",
+        "duration_hours": 8,
+        "requires_parts": ["HB900_DRIVER", "ACTUATOR_TVC_001"],
+        "test_type": "mechanical_integration"
+      }
+    },
+    {
+      "id": "SYSTEM_FLIGHT_TEST",
+      "name": "Full System Flight Readiness Test",
+      "entity_type": "TEST",
+      "status": "ON_TRACK",
+      "milestone_date": "2023-11-20",
+      "owner_team": "avionics",
+      "metadata": {
+        "test_facility": "Flight Test Range",
+        "duration_hours": 24,
+        "requires_parts": ["BATTERY_MODULE_001", "HB900_DRIVER", "ACTUATOR_TVC_001"],
+        "test_type": "full_system"
+      }
+    },
+    {
+      "id": "Q3_DELIVERY_MILESTONE",
+      "name": "Q3 Component Delivery Milestone",
       "entity_type": "MILESTONE",
       "status": "ON_TRACK",
-      "milestone_date": "2023-11-01",
+      "milestone_date": "2023-10-20",
       "owner_team": "management",
       "metadata": {
-        "stakeholders": ["Engineering", "QA", "Supply Chain"],
-        "budget_allocated": 500000
+        "stakeholders": ["Engineering", "Supply Chain"],
+        "deliverables": ["HB900_DRIVER", "ACTUATOR_TVC_001"]
+      }
+    },
+    {
+      "id": "Q4_FLIGHT_READINESS",
+      "name": "Q4 Flight Readiness Review",
+      "entity_type": "MILESTONE",
+      "status": "ON_TRACK",
+      "milestone_date": "2023-11-30",
+      "owner_team": "management",
+      "metadata": {
+        "stakeholders": ["Engineering", "QA", "Supply Chain", "Safety"],
+        "budget_allocated": 750000,
+        "regulatory_requirement": true
+      }
+    },
+    {
+      "id": "POWER_SAFETY_REQUIREMENT",
+      "name": "Power System Safety Certification",
+      "entity_type": "REQUIREMENT",
+      "status": "ON_TRACK",
+      "milestone_date": "2023-11-15",
+      "owner_team": "safety",
+      "metadata": {
+        "certification_body": "Aerospace Safety Board",
+        "standard": "AS9100",
+        "required_for_flight": true
+      }
+    },
+    {
+      "id": "PERFORMANCE_SPEC_001",
+      "name": "TVC Performance Specification",
+      "entity_type": "REQUIREMENT",
+      "status": "COMPLETED",
+      "milestone_date": "2023-09-15",
+      "owner_team": "engineering",
+      "metadata": {
+        "spec_version": "v2.1",
+        "approved_by": "Chief Engineer",
+        "response_time_ms": 50
       }
     }
   ],
   "dependencies": [
+    {
+      "parent_id": "BATTERY_INTEGRATION_TEST",
+      "child_id": "BATTERY_MODULE_001",
+      "dependency_type": "CRITICAL_BLOCKER",
+      "confidence": 1.0
+    },
     {
       "parent_id": "Q3_INTEGRATION_TEST",
       "child_id": "HB900_DRIVER",
@@ -67,9 +156,45 @@
       "confidence": 1.0
     },
     {
-      "parent_id": "FINAL_ASSEMBLY_Q4",
+      "parent_id": "SYSTEM_FLIGHT_TEST",
+      "child_id": "BATTERY_INTEGRATION_TEST",
+      "dependency_type": "CRITICAL_BLOCKER",
+      "confidence": 1.0
+    },
+    {
+      "parent_id": "SYSTEM_FLIGHT_TEST",
       "child_id": "Q3_INTEGRATION_TEST",
       "dependency_type": "CRITICAL_BLOCKER",
+      "confidence": 1.0
+    },
+    {
+      "parent_id": "Q3_DELIVERY_MILESTONE",
+      "child_id": "Q3_INTEGRATION_TEST",
+      "dependency_type": "CRITICAL_BLOCKER",
+      "confidence": 1.0
+    },
+    {
+      "parent_id": "Q4_FLIGHT_READINESS",
+      "child_id": "SYSTEM_FLIGHT_TEST",
+      "dependency_type": "CRITICAL_BLOCKER",
+      "confidence": 1.0
+    },
+    {
+      "parent_id": "Q4_FLIGHT_READINESS",
+      "child_id": "POWER_SAFETY_REQUIREMENT",
+      "dependency_type": "CRITICAL_BLOCKER",
+      "confidence": 0.95
+    },
+    {
+      "parent_id": "POWER_SAFETY_REQUIREMENT",
+      "child_id": "BATTERY_INTEGRATION_TEST",
+      "dependency_type": "INFORMATIONAL",
+      "confidence": 0.9
+    },
+    {
+      "parent_id": "Q3_INTEGRATION_TEST",
+      "child_id": "PERFORMANCE_SPEC_001",
+      "dependency_type": "INFORMATIONAL",
       "confidence": 1.0
     }
   ]

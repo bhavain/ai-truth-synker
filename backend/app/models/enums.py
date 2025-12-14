@@ -10,24 +10,25 @@ class EntityType(str, Enum):
     TEST = "TEST"
     ASSEMBLY = "ASSEMBLY"
     MILESTONE = "MILESTONE"
+    REQUIREMENT = "REQUIREMENT"
 
 
 class EntityStatus(str, Enum):
     """Status values for project entities"""
 
-    ON_TRACK = "ON_TRACK"
-    DELAYED = "DELAYED"
-    CRITICAL = "CRITICAL"
-    COMPLETED = "COMPLETED"
-    BLOCKED = "BLOCKED"
+    ON_TRACK = "ON_TRACK"  # Progressing normally, on schedule
+    AT_RISK = "AT_RISK"    # Potential issues identified
+    DELAYED = "DELAYED"    # Behind schedule
+    CRITICAL = "CRITICAL"  # Urgent attention needed
+    COMPLETED = "COMPLETED"  # Finished
+    BLOCKED = "BLOCKED"    # Cannot proceed, waiting on something
 
 
 class DependencyType(str, Enum):
     """Dependency relationship types"""
 
-    CRITICAL_BLOCKER = "CRITICAL_BLOCKER"
-    SOFT_DEPENDENCY = "SOFT_DEPENDENCY"
-    INFORMATIONAL = "INFORMATIONAL"
+    CRITICAL_BLOCKER = "CRITICAL_BLOCKER"  # Hard blocker: parent cannot proceed until child completes
+    INFORMATIONAL = "INFORMATIONAL"         # Reference only: no actual blocking dependency, just context
 
 
 class MessageClass(str, Enum):
