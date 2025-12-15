@@ -73,22 +73,25 @@ def judge_node(state: BatchGraphState) -> BatchGraphState:
         if verdict:
             verdicts.append(verdict)
             logger.info(f"   ✓ Verdict: {verdict.verdict} (confidence: {verdict.confidence:.2f})")
+            logger.info(f"   ✓ Entity updates: {len(verdict.entity_updates)}")
 
             # Auto-apply high-confidence verdicts
-            if verdict.confidence >= AUTO_APPLY_THRESHOLD:
-                if issue.issue_type == "OPPORTUNITY":
-                    # Unblock dependent entity
-                    applied = _auto_apply_resolution(issue, verdict)
-                    if applied:
-                        auto_applied_updates.append(applied)
-                        logger.info(f"   🤖 Auto-applied OPPORTUNITY: {applied['entity_id']} → {applied['new_status']}")
-
-                elif issue.issue_type == "CONFLICT":
-                    # Block dependent entity
-                    applied = _auto_apply_conflict(issue, verdict)
-                    if applied:
-                        auto_applied_updates.append(applied)
-                        logger.info(f"   🤖 Auto-applied CONFLICT: {applied['entity_id']} → {applied['new_status']}")
+            if verdict.confidence >= AUTO_APPLY_THRESHOLD and verdict.entity_updates:
+                # Apply ALL entity updates from verdict (includes cascade)
+                for entity_update in verdict.entity_updates:
+                    logger.info(f"   ✓ Entity update: {entity_update}")
+                    update_record = {
+                        "entity_id": entity_update.entity_id,
+                        "entity_name": entity_update.entity_name,
+                        "new_status": entity_update.new_status.value,
+                        "old_status": issue.affected_entity.status.value if entity_update.cascade_level == 0 else "UNKNOWN",
+                        "trigger": f"{issue.trigger_entity.id} {issue.issue_type.lower()}",
+                        "confidence": verdict.confidence,
+                        "reasoning": entity_update.reasoning,
+                        "cascade_level": entity_update.cascade_level
+                    }
+                    auto_applied_updates.append(update_record)
+                    logger.info(f"   🤖 Auto-applied (L{entity_update.cascade_level}): {entity_update.entity_id} → {entity_update.new_status.value}")
 
     # Batch commit all auto-applied updates
     if auto_applied_updates:
@@ -129,70 +132,6 @@ def _deliberate_opportunity(judge: JudgeAgent, issue: DependencyIssue) -> JudgeV
     verdict = judge.deliberate(issue)
 
     return verdict
-
-
-def _auto_apply_resolution(issue: DependencyIssue, verdict: JudgeVerdict) -> Dict[str, Any]:
-    """
-    Auto-apply a resolution (OPPORTUNITY) by unblocking entity.
-
-    Does NOT commit yet - will be batched later.
-
-    Returns update record for tracking.
-    """
-    try:
-        suggested_status = verdict.suggested_status or EntityStatus.ON_TRACK
-        entity_id = issue.affected_entity.id
-
-        logger.info(f"   🤖 Auto-applying: {entity_id} → {suggested_status.value}")
-
-        # Build update record (will be committed in batch)
-        update_record = {
-            "entity_id": entity_id,
-            "entity_name": issue.affected_entity.name,
-            "old_status": issue.affected_entity.status.value,
-            "new_status": suggested_status.value,
-            "trigger": f"{issue.trigger_entity.id} resolved",
-            "confidence": verdict.confidence,
-            "reasoning": verdict.reasoning
-        }
-
-        return update_record
-
-    except Exception as e:
-        logger.error(f"   ✗ Auto-apply failed for {issue.affected_entity.id}: {e}")
-        return None
-
-
-def _auto_apply_conflict(issue: DependencyIssue, verdict: JudgeVerdict) -> Dict[str, Any]:
-    """
-    Auto-apply a conflict by blocking the affected entity.
-
-    Does NOT commit yet - will be batched later.
-
-    Returns update record for tracking.
-    """
-    try:
-        entity_id = issue.affected_entity.id
-        new_status = EntityStatus.BLOCKED
-
-        logger.info(f"   🤖 Auto-blocking: {entity_id} → {new_status.value}")
-
-        # Build update record (will be committed in batch)
-        update_record = {
-            "entity_id": entity_id,
-            "entity_name": issue.affected_entity.name,
-            "old_status": issue.affected_entity.status.value,
-            "new_status": new_status.value,
-            "trigger": f"{issue.trigger_entity.id} conflict",
-            "confidence": verdict.confidence,
-            "reasoning": verdict.reasoning
-        }
-
-        return update_record
-
-    except Exception as e:
-        logger.error(f"   ✗ Auto-apply conflict failed for {issue.affected_entity.id}: {e}")
-        return None
 
 
 def _commit_auto_applied_updates(updates: List[Dict[str, Any]]) -> str:

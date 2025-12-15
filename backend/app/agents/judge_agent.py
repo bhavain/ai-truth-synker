@@ -234,7 +234,123 @@ class JudgeAgent:
                     "error": str(e)
                 })
 
-        return [query_vector_store, check_entity_history, check_dependencies, validate_dates]
+        @tool
+        def get_dependency_tree(entity_id: str) -> str:
+            """Get complete dependency tree (upstream and downstream) for an entity. Input: entity_id (e.g., 'Q3_INTEGRATION_TEST'). Returns: Full tree showing what this entity depends on (children) and what depends on it (parents), recursively up to root milestones."""
+            tool_usage_log.append(f"get_dependency_tree({entity_id})")
+
+            try:
+                def get_upstream(eid, visited=None, level=0):
+                    """Recursively get all parents (things that depend on this entity)"""
+                    if visited is None:
+                        visited = set()
+                    if eid in visited or level > 10:  # Prevent cycles and infinite loops
+                        return []
+                    visited.add(eid)
+
+                    with dolt.get_connection() as conn:
+                        cursor = conn.cursor()
+                        cursor.execute("""
+                            SELECT p.*, d.dependency_type, d.confidence
+                            FROM project_entities p
+                            JOIN dependencies d ON d.parent_id = p.id
+                            WHERE d.child_id = %s
+                        """, (eid,))
+
+                        parents = []
+                        for row in cursor.fetchall():
+                            parent_info = {
+                                "entity_id": row["id"],
+                                "name": row["name"],
+                                "entity_type": row["entity_type"],
+                                "status": row["status"],
+                                "milestone_date": str(row["milestone_date"]),
+                                "owner_team": row["owner_team"],
+                                "dependency_type": row["dependency_type"],
+                                "level": level
+                            }
+                            parents.append(parent_info)
+
+                            # Recurse to get grandparents
+                            parents.extend(get_upstream(row["id"], visited, level + 1))
+
+                        return parents
+
+                def get_downstream(eid, visited=None, level=0):
+                    """Recursively get all children (things this entity depends on)"""
+                    if visited is None:
+                        visited = set()
+                    if eid in visited or level > 10:
+                        return []
+                    visited.add(eid)
+
+                    with dolt.get_connection() as conn:
+                        cursor = conn.cursor()
+                        cursor.execute("""
+                            SELECT p.*, d.dependency_type, d.confidence
+                            FROM project_entities p
+                            JOIN dependencies d ON d.child_id = p.id
+                            WHERE d.parent_id = %s
+                        """, (eid,))
+
+                        children = []
+                        for row in cursor.fetchall():
+                            child_info = {
+                                "entity_id": row["id"],
+                                "name": row["name"],
+                                "entity_type": row["entity_type"],
+                                "status": row["status"],
+                                "milestone_date": str(row["milestone_date"]),
+                                "owner_team": row["owner_team"],
+                                "dependency_type": row["dependency_type"],
+                                "level": level
+                            }
+                            children.append(child_info)
+
+                            # Recurse to get descendants
+                            children.extend(get_downstream(row["id"], visited, level + 1))
+
+                        return children
+
+                # Get the entity itself
+                entity = dolt.get_entity(entity_id)
+                if not entity:
+                    return json.dumps({
+                        "found": False,
+                        "error": f"Entity {entity_id} not found"
+                    })
+
+                # Get complete tree
+                upstream = get_upstream(entity_id)
+                downstream = get_downstream(entity_id)
+
+                return json.dumps({
+                    "found": True,
+                    "entity": {
+                        "entity_id": entity.id,
+                        "name": entity.name,
+                        "status": entity.status.value,
+                        "milestone_date": str(entity.milestone_date),
+                        "owner_team": entity.owner_team
+                    },
+                    "upstream_dependencies": {
+                        "count": len(upstream),
+                        "entities": upstream
+                    },
+                    "downstream_dependencies": {
+                        "count": len(downstream),
+                        "entities": downstream
+                    }
+                }, indent=2)
+
+            except Exception as e:
+                logger.warning(f"Tool get_dependency_tree failed: {e}")
+                return json.dumps({
+                    "found": False,
+                    "error": str(e)
+                })
+
+        return [query_vector_store, check_entity_history, check_dependencies, validate_dates, get_dependency_tree]
 
     def _create_agent(self):
         """Create agent with tools using new LangChain API"""
@@ -273,8 +389,27 @@ IMPORTANT: Your final answer must be a JSON object with this structure:
             "summary": "what this evidence shows and why it matters"
         }
     ],
-    "recommended_action": "what teams should do"
+    "recommended_action": "what teams should do",
+    "entity_updates": [
+        {
+            "entity_id": "ENTITY_ID",
+            "entity_name": "ENTITY_NAME",
+            "new_status": "BLOCKED" | "ON_TRACK" | "AT_RISK" | "DELAYED",
+            "reasoning": "why this entity needs this specific status update",
+            "cascade_level": 0  // 0=direct entity, 1=first level cascade, 2+=further levels
+        }
+    ]
 }
+
+CRITICAL: Use get_dependency_tree tool to analyze COMPLETE cascade impact. For every issue:
+1. Get the full dependency tree for the affected entity
+2. Analyze ALL upstream dependencies (entities that depend on this one)
+3. For each upstream entity, determine if it should be updated based on:
+   - Date compatibility
+   - Current status
+   - Dependency type
+4. Include ALL affected entities in entity_updates array
+5. Set appropriate cascade_level for each update
 
 CONFIDENCE GUIDELINES:
 - 0.85-1.0: Very high confidence, can auto-apply (for opportunities)
@@ -351,9 +486,9 @@ EVIDENCE FORMAT RULES:
             return None
 
     def _build_conflict_task(self, issue: DependencyIssue) -> str:
-        """Build task prompt for CONFLICT analysis"""
+        """Build task prompt for CONFLICT analysis with cascade"""
         return f"""
-Analyze this CONFLICT:
+Analyze this CONFLICT and its CASCADE IMPACT:
 
 ISSUE:
 - ID: {issue.issue_id}
@@ -369,7 +504,7 @@ TRIGGER ENTITY (changed):
 - Milestone Date: {issue.trigger_entity.milestone_date}
 - Owner Team: {issue.trigger_entity.owner_team}
 
-AFFECTED ENTITY (impacted):
+AFFECTED ENTITY (directly impacted):
 - ID: {issue.affected_entity.id}
 - Name: {issue.affected_entity.name}
 - Type: {issue.affected_entity.entity_type.value}
@@ -381,19 +516,30 @@ DEPENDENCY:
 - Type: {issue.dependency.dependency_type.value}
 - Confidence: {issue.dependency.confidence}
 
-TASK:
-Use your tools to gather evidence and determine:
-1. Is this a real conflict?
-2. What's the impact?
-3. What should teams do?
+TASK - CASCADE ANALYSIS:
+You must analyze the COMPLETE impact of this conflict:
 
-Provide your verdict in JSON format as specified.
+1. Use get_dependency_tree({issue.affected_entity.id}) to get ALL upstream dependencies
+2. For EACH entity in the upstream tree, determine:
+   - Should it be BLOCKED? (if it depends on a blocked entity)
+   - Should it be AT_RISK? (if dates are tight but might work)
+   - Can it stay ON_TRACK? (if there's sufficient buffer)
+3. Use validate_dates for each upstream entity to check date compatibility
+4. Use query_vector_store to check for any additional context about entities
+
+OUTPUT REQUIREMENTS:
+- Include {issue.affected_entity.id} as cascade_level=0 (direct impact)
+- Include ALL upstream entities that need status changes
+- Set cascade_level based on distance from direct entity (1, 2, 3...)
+- Be comprehensive - a manager needs to see the full blast radius
+
+Provide your verdict in JSON format with complete entity_updates array.
 """
 
     def _build_opportunity_task(self, issue: DependencyIssue) -> str:
-        """Build task prompt for OPPORTUNITY analysis"""
+        """Build task prompt for OPPORTUNITY analysis with cascade"""
         return f"""
-Analyze this OPPORTUNITY:
+Analyze this OPPORTUNITY and its CASCADE IMPACT:
 
 ISSUE:
 - ID: {issue.issue_id}
@@ -418,17 +564,27 @@ DEPENDENCY:
 - Type: {issue.dependency.dependency_type.value}
 - {issue.affected_entity.id} depends on {issue.trigger_entity.id}
 
-TASK:
-Use your tools to determine if {issue.affected_entity.id} can be safely UNBLOCKED:
+TASK - CASCADE ANALYSIS:
+You must analyze the COMPLETE impact of unblocking this entity:
 
 1. check_dependencies({issue.affected_entity.id}): Are there OTHER blockers?
-2. query_vector_store("{issue.affected_entity.id} {issue.trigger_entity.id}"): What do conversations say?
-3. check_entity_history({issue.affected_entity.id}): Any patterns of premature unblocking?
-4. validate_dates("{issue.affected_entity.id},{issue.trigger_entity.id}"): Are dates compatible?
+2. validate_dates for {issue.affected_entity.id}
+3. Use get_dependency_tree({issue.affected_entity.id}) to get ALL upstream dependencies
+4. For EACH entity in the upstream tree, determine:
+   - Can it be UNBLOCKED? (if this was its last blocker)
+   - Should it move to ON_TRACK? (if all dependencies resolved)
+   - Does it need to stay AT_RISK or BLOCKED? (if other blockers exist)
+5. query_vector_store to check for context about entities
 
-Provide verdict in JSON format. Use confidence >= 0.85 ONLY if:
-- No other blockers exist
-- Dates are compatible
+OUTPUT REQUIREMENTS:
+- Include {issue.affected_entity.id} as cascade_level=0 (direct unblock)
+- Include ALL upstream entities that can now proceed
+- Set cascade_level based on distance from direct entity (1, 2, 3...)
+- Be comprehensive - show full positive cascade
+
+Provide verdict in JSON format with complete entity_updates array. Use confidence >= 0.85 ONLY if:
+- No other blockers exist for ALL entities
+- Dates are compatible for ALL entities
 - No concerns in conversation history
 - Entity history looks stable
 """
@@ -469,11 +625,17 @@ Provide verdict in JSON format. Use confidence >= 0.85 ONLY if:
                 for ev in parsed.get("evidence", [])
             ]
 
-            # Extract suggested_status for opportunities
-            suggested_status = None
-            if issue.issue_type == "OPPORTUNITY":
-                from app.models import EntityStatus
-                suggested_status = EntityStatus.ON_TRACK  # Default for unblocking
+            # Parse entity_updates
+            from app.models import EntityUpdate, EntityStatus
+            entity_updates = []
+            for update in parsed.get("entity_updates", []):
+                entity_updates.append(EntityUpdate(
+                    entity_id=update["entity_id"],
+                    entity_name=update["entity_name"],
+                    new_status=EntityStatus(update["new_status"]),
+                    reasoning=update.get("reasoning", ""),
+                    cascade_level=update.get("cascade_level", 0)
+                ))
 
             verdict = JudgeVerdict(
                 issue_id=issue.issue_id,
@@ -483,7 +645,7 @@ Provide verdict in JSON format. Use confidence >= 0.85 ONLY if:
                 evidence=evidence_refs,
                 recommended_action=parsed["recommended_action"],
                 confidence=float(parsed.get("confidence", 0.5)),
-                suggested_status=suggested_status,
+                entity_updates=entity_updates,
                 decided_at=datetime.now(),
                 notified_teams=[
                     issue.affected_entity.owner_team,

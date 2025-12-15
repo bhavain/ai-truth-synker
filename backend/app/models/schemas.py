@@ -164,8 +164,18 @@ class EvidenceReference(BaseModel):
     summary: str = Field(..., description="What this thread contributed to the verdict")
 
 
+class EntityUpdate(BaseModel):
+    """A single entity status update as part of cascade resolution"""
+
+    entity_id: str = Field(..., description="Entity to update")
+    entity_name: str = Field(..., description="Human-readable name of the entity")
+    new_status: EntityStatus = Field(..., description="New status to apply")
+    reasoning: str = Field(..., description="Why this entity needs this update")
+    cascade_level: int = Field(0, description="0=direct, 1+=cascade levels")
+
+
 class JudgeVerdict(BaseModel):
-    """Final verdict from Judge agent with evidence provenance"""
+    """Final verdict from Judge agent with evidence provenance and cascade updates"""
 
     issue_id: str = Field(..., description="References DependencyIssue.issue_id")
     issue_type: Literal["CONFLICT", "OPPORTUNITY"] = Field(..., description="Type of issue deliberated")
@@ -178,7 +188,10 @@ class JudgeVerdict(BaseModel):
         ..., description="Suggested remediation for engineering teams"
     )
     confidence: float = Field(..., ge=0.0, le=1.0, description="Confidence in this verdict (used for auto-apply threshold)")
-    suggested_status: Optional[EntityStatus] = Field(None, description="For OPPORTUNITY: what status to apply")
+    entity_updates: list[EntityUpdate] = Field(
+        default_factory=list,
+        description="All entities that should be updated (includes cascade impacts)"
+    )
     decided_at: datetime = Field(default_factory=datetime.now)
     notified_teams: list[str] = Field(default_factory=list, description="Teams alerted")
 
