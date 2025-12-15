@@ -1,4 +1,4 @@
-"""Judge Agent - ReAct agent for conflict adjudication with evidence gathering"""
+"""Judge Agent - ReAct agent for dependency issue analysis with evidence gathering"""
 
 import json
 import logging
@@ -11,17 +11,16 @@ from langchain_core.tools import tool
 
 from app.config import get_settings
 from app.db import get_vector_store, get_dolt_client
-from app.models import ConflictAlert, JudgeVerdict, EvidenceReference
+from app.models import DependencyIssue, JudgeVerdict, EvidenceReference
 
 logger = logging.getLogger(__name__)
 
 
 class JudgeAgent:
     """
-    ReAct agent for conflict adjudication with evidence gathering.
+    ReAct agent for dependency issue analysis with evidence gathering.
 
-    Similar to AutonomousWatcher but specialized for conflict analysis.
-    Uses tools to gather evidence before making a verdict.
+    Handles both CONFLICT and OPPORTUNITY issues using tools to gather evidence.
     """
 
     def __init__(self):
@@ -47,7 +46,7 @@ class JudgeAgent:
 
         @tool
         def query_vector_store(query: str) -> str:
-            """Search historical conversations across all relevant channels for context about entities in conflict. Input: search query (e.g., 'HB900_DRIVER delay'). Returns: List of relevant past conversation summaries with timestamps and channels."""
+            """Search historical conversations across all relevant channels for context about entities. Input: search query (e.g., 'HB900_DRIVER delay'). Returns: List of relevant past conversation summaries with timestamps and channels."""
             tool_usage_log.append(f"query_vector_store('{query[:30]}...')")
 
             try:
@@ -142,44 +141,62 @@ class JudgeAgent:
                 })
 
         @tool
-        def get_dependency_details(input_str: str) -> str:
-            """Get full details about a dependency relationship. Input: parent_id,child_id (e.g., 'Q3_TEST,HB900_DRIVER'). Returns: Dependency type, confidence score, and metadata."""
-            tool_usage_log.append(f"get_dependency_details({input_str})")
+        def check_dependencies(entity_id: str) -> str:
+            """Check all dependencies for an entity to see if other blockers exist. Input: entity_id (e.g., 'Q3_TEST'). Returns: List of all dependencies and their current status."""
+            tool_usage_log.append(f"check_dependencies({entity_id})")
 
             try:
-                parent_id, child_id = input_str.split(",")
-                parent_id = parent_id.strip()
-                child_id = child_id.strip()
+                # Get entity
+                entity = dolt.get_entity(entity_id)
+                if not entity:
+                    return json.dumps({
+                        "found": False,
+                        "error": f"Entity {entity_id} not found"
+                    })
 
-                # Get dependency
-                dependencies = dolt.get_dependencies_for_entity(child_id)
+                # Get all dependencies (what this entity depends on)
+                dependencies = dolt.get_dependencies_for_entity(entity_id)
 
-                for dep in dependencies:
-                    if dep.parent_id == parent_id:
-                        return json.dumps({
-                            "found": True,
-                            "parent_id": dep.parent_id,
+                if dependencies:
+                    dep_info = []
+                    for dep in dependencies:
+                        # Get child entity details
+                        child = dolt.get_entity(dep.child_id)
+                        dep_info.append({
                             "child_id": dep.child_id,
-                            "type": dep.dependency_type.value,
-                            "confidence": dep.confidence
-                        }, indent=2)
+                            "child_status": child.status.value if child else "UNKNOWN",
+                            "child_milestone": str(child.milestone_date) if child else "UNKNOWN",
+                            "dependency_type": dep.dependency_type.value,
+                            "is_blocker": child.status.value in ["DELAYED", "BLOCKED", "AT_RISK"] if child else False
+                        })
 
-                return json.dumps({
-                    "found": False,
-                    "error": f"No dependency found between {parent_id} and {child_id}"
-                })
+                    return json.dumps({
+                        "found": True,
+                        "entity_id": entity_id,
+                        "total_dependencies": len(dep_info),
+                        "dependencies": dep_info,
+                        "active_blockers": sum(1 for d in dep_info if d["is_blocker"])
+                    }, indent=2)
+                else:
+                    return json.dumps({
+                        "found": True,
+                        "entity_id": entity_id,
+                        "total_dependencies": 0,
+                        "dependencies": [],
+                        "active_blockers": 0
+                    })
 
             except Exception as e:
-                logger.warning(f"Tool get_dependency_details failed: {e}")
+                logger.warning(f"Tool check_dependencies failed: {e}")
                 return json.dumps({
                     "found": False,
                     "error": str(e)
                 })
 
         @tool
-        def validate_conflict(input_str: str) -> str:
-            """Re-validate the conflict logic to ensure it's not an edge case. Input: parent_id,child_id (e.g., 'Q3_TEST,HB900_DRIVER'). Returns: Confirmation of conflict with detailed reasoning."""
-            tool_usage_log.append(f"validate_conflict({input_str})")
+        def validate_dates(input_str: str) -> str:
+            """Validate date relationships between entities. Input: parent_id,child_id (e.g., 'Q3_TEST,HB900_DRIVER'). Returns: Date comparison and conflict validation."""
+            tool_usage_log.append(f"validate_dates({input_str})")
 
             try:
                 parent_id, child_id = input_str.split(",")
@@ -197,26 +214,27 @@ class JudgeAgent:
                     })
 
                 # Check date logic
-                if parent.milestone_date < child.milestone_date:
-                    return json.dumps({
-                        "valid": True,
-                        "conflict_type": "critical_blocker_schedule_inversion",
-                        "reasoning": f"Parent '{parent.name}' scheduled for {parent.milestone_date}, but depends on child '{child.name}' available {child.milestone_date}. Parent date is BEFORE child availability."
-                    }, indent=2)
-                else:
-                    return json.dumps({
-                        "valid": False,
-                        "reasoning": "No date conflict detected on re-validation"
-                    })
+                date_compatible = parent.milestone_date >= child.milestone_date
+
+                return json.dumps({
+                    "parent_id": parent_id,
+                    "parent_date": str(parent.milestone_date),
+                    "child_id": child_id,
+                    "child_date": str(child.milestone_date),
+                    "date_compatible": date_compatible,
+                    "days_difference": (parent.milestone_date - child.milestone_date).days,
+                    "conflict": not date_compatible,
+                    "reasoning": f"Parent scheduled {parent.milestone_date}, child scheduled {child.milestone_date}. {'OK' if date_compatible else 'CONFLICT: Parent before child!'}"
+                }, indent=2)
 
             except Exception as e:
-                logger.warning(f"Tool validate_conflict failed: {e}")
+                logger.warning(f"Tool validate_dates failed: {e}")
                 return json.dumps({
                     "valid": False,
                     "error": str(e)
                 })
 
-        return [query_vector_store, check_entity_history, get_dependency_details, validate_conflict]
+        return [query_vector_store, check_entity_history, check_dependencies, validate_dates]
 
     def _create_agent(self):
         """Create agent with tools using new LangChain API"""
@@ -228,10 +246,10 @@ class JudgeAgent:
         )
 
         # Build system prompt for Judge
-        system_prompt = """You are the Judge - an expert conflict analyst for hardware project dependencies.
+        system_prompt = """You are the Judge - an expert dependency analyst for hardware project dependencies.
 
-Your role is to analyze conflicts detected by the Arbiter and determine:
-1. Is this a real conflict or a false positive?
+Your role is to analyze dependency issues (conflicts and resolution opportunities) and determine:
+1. Is this issue real or a false positive?
 2. What is the severity and impact?
 3. What evidence supports this conclusion?
 4. What action should be taken?
@@ -240,11 +258,12 @@ Use the available tools to:
 - Search historical conversations for context
 - Check entity update history in the database
 - Verify dependency relationships
-- Re-validate the conflict logic
+- Check for other blockers
+- Validate date relationships
 
 IMPORTANT: Your final answer must be a JSON object with this structure:
 {
-    "verdict": "CRITICAL_CONFLICT" | "RESOLVED" | "FALSE_POSITIVE",
+    "verdict": "CRITICAL_CONFLICT" | "RESOLUTION_RECOMMENDED" | "NEEDS_MANUAL_REVIEW" | "FALSE_POSITIVE",
     "reasoning": "detailed explanation of your decision",
     "confidence": 0.0-1.0,
     "evidence": [
@@ -257,8 +276,14 @@ IMPORTANT: Your final answer must be a JSON object with this structure:
     "recommended_action": "what teams should do"
 }
 
+CONFIDENCE GUIDELINES:
+- 0.85-1.0: Very high confidence, can auto-apply (for opportunities)
+- 0.70-0.84: High confidence, recommend manual review
+- 0.50-0.69: Medium confidence, manual review required
+- <0.50: Low confidence, more investigation needed
+
 EVIDENCE FORMAT RULES:
-- thread_id: For Slack threads use "slack://channel/ts", for tools use "tool:validate_conflict", "tool:entity_history", etc.
+- thread_id: For Slack threads use "slack://channel/ts", for tools use "tool:check_dependencies", "tool:check_entity_history", etc.
 - relevance: MUST be one of: "primary" (main evidence), "supporting" (additional context), "contradictory" (conflicts with other evidence)
 - summary: Describe what the evidence shows and its importance to the verdict"""
 
@@ -274,64 +299,35 @@ EVIDENCE FORMAT RULES:
 
         return agent
 
-    def deliberate(self, conflict: ConflictAlert) -> Optional[JudgeVerdict]:
+    def deliberate(self, issue: DependencyIssue) -> Optional[JudgeVerdict]:
         """
-        Analyze conflict and issue verdict.
+        Analyze dependency issue and issue verdict.
 
         Agent autonomously:
         1. Gathers evidence from vector store
         2. Checks entity history in Dolt
-        3. Validates conflict logic
+        3. Validates dependencies and dates
         4. Issues verdict with reasoning
 
         Args:
-            conflict: ConflictAlert to analyze
+            issue: DependencyIssue to analyze
 
         Returns:
             JudgeVerdict or None if deliberation fails
         """
-        logger.info(f"⚖️  JUDGE: Analyzing conflict {conflict.conflict_id}...")
+        logger.info(f"⚖️  JUDGE: Analyzing {issue.issue_type} {issue.issue_id}...")
 
         # Reset tool usage log
         self.tool_usage_log = []
 
-        # Create analysis task
-        task = f"""
-Analyze this dependency conflict:
-
-CONFLICT:
-- ID: {conflict.conflict_id}
-- Rule Violated: {conflict.logic_rule_violated}
-- Severity: {conflict.severity.value}
-
-PARENT ENTITY (depends on child):
-- ID: {conflict.parent_entity.id}
-- Name: {conflict.parent_entity.name}
-- Type: {conflict.parent_entity.entity_type.value}
-- Status: {conflict.parent_entity.status.value}
-- Milestone Date: {conflict.parent_entity.milestone_date}
-- Owner Team: {conflict.parent_entity.owner_team}
-
-CHILD ENTITY (must complete first):
-- ID: {conflict.child_entity.id}
-- Name: {conflict.child_entity.name}
-- Type: {conflict.child_entity.entity_type.value}
-- Status: {conflict.child_entity.status.value}
-- Milestone Date: {conflict.child_entity.milestone_date}
-- Owner Team: {conflict.child_entity.owner_team}
-
-DEPENDENCY:
-- Type: {conflict.dependency.dependency_type.value}
-- Confidence: {conflict.dependency.confidence}
-
-TASK:
-Use your tools to gather evidence and determine:
-1. Is this a real conflict?
-2. What's the impact?
-3. What should teams do?
-
-Provide your verdict in JSON format as specified.
-"""
+        # Create analysis task based on issue type
+        if issue.issue_type == "CONFLICT":
+            task = self._build_conflict_task(issue)
+        elif issue.issue_type == "OPPORTUNITY":
+            task = self._build_opportunity_task(issue)
+        else:
+            logger.warning(f"Unknown issue type: {issue.issue_type}")
+            return None
 
         try:
             # Let agent work autonomously using new API
@@ -342,7 +338,7 @@ Provide your verdict in JSON format as specified.
             logger.info(f"   Tools used: {', '.join(self.tool_usage_log)}")
 
             # Parse agent output
-            verdict = self._parse_agent_output(result, conflict)
+            verdict = self._parse_agent_output(result, issue)
 
             if verdict:
                 logger.info(f"   ⚖️  VERDICT: {verdict.verdict}")
@@ -354,7 +350,90 @@ Provide your verdict in JSON format as specified.
             logger.error(f"   ✗ Judge deliberation failed: {e}")
             return None
 
-    def _parse_agent_output(self, result: dict, conflict: ConflictAlert) -> Optional[JudgeVerdict]:
+    def _build_conflict_task(self, issue: DependencyIssue) -> str:
+        """Build task prompt for CONFLICT analysis"""
+        return f"""
+Analyze this CONFLICT:
+
+ISSUE:
+- ID: {issue.issue_id}
+- Type: CONFLICT (blocking issue)
+- Reason: {issue.reason}
+- Severity: {issue.severity.value}
+
+TRIGGER ENTITY (changed):
+- ID: {issue.trigger_entity.id}
+- Name: {issue.trigger_entity.name}
+- Type: {issue.trigger_entity.entity_type.value}
+- Status: {issue.trigger_entity.status.value}
+- Milestone Date: {issue.trigger_entity.milestone_date}
+- Owner Team: {issue.trigger_entity.owner_team}
+
+AFFECTED ENTITY (impacted):
+- ID: {issue.affected_entity.id}
+- Name: {issue.affected_entity.name}
+- Type: {issue.affected_entity.entity_type.value}
+- Status: {issue.affected_entity.status.value}
+- Milestone Date: {issue.affected_entity.milestone_date}
+- Owner Team: {issue.affected_entity.owner_team}
+
+DEPENDENCY:
+- Type: {issue.dependency.dependency_type.value}
+- Confidence: {issue.dependency.confidence}
+
+TASK:
+Use your tools to gather evidence and determine:
+1. Is this a real conflict?
+2. What's the impact?
+3. What should teams do?
+
+Provide your verdict in JSON format as specified.
+"""
+
+    def _build_opportunity_task(self, issue: DependencyIssue) -> str:
+        """Build task prompt for OPPORTUNITY analysis"""
+        return f"""
+Analyze this OPPORTUNITY:
+
+ISSUE:
+- ID: {issue.issue_id}
+- Type: OPPORTUNITY (potential resolution)
+- Reason: {issue.reason}
+
+TRIGGER ENTITY (resolved blocker):
+- ID: {issue.trigger_entity.id}
+- Name: {issue.trigger_entity.name}
+- Status: {issue.trigger_entity.status.value}
+- Milestone Date: {issue.trigger_entity.milestone_date}
+- Owner Team: {issue.trigger_entity.owner_team}
+
+AFFECTED ENTITY (currently BLOCKED):
+- ID: {issue.affected_entity.id}
+- Name: {issue.affected_entity.name}
+- Status: {issue.affected_entity.status.value}
+- Milestone Date: {issue.affected_entity.milestone_date}
+- Owner Team: {issue.affected_entity.owner_team}
+
+DEPENDENCY:
+- Type: {issue.dependency.dependency_type.value}
+- {issue.affected_entity.id} depends on {issue.trigger_entity.id}
+
+TASK:
+Use your tools to determine if {issue.affected_entity.id} can be safely UNBLOCKED:
+
+1. check_dependencies({issue.affected_entity.id}): Are there OTHER blockers?
+2. query_vector_store("{issue.affected_entity.id} {issue.trigger_entity.id}"): What do conversations say?
+3. check_entity_history({issue.affected_entity.id}): Any patterns of premature unblocking?
+4. validate_dates("{issue.affected_entity.id},{issue.trigger_entity.id}"): Are dates compatible?
+
+Provide verdict in JSON format. Use confidence >= 0.85 ONLY if:
+- No other blockers exist
+- Dates are compatible
+- No concerns in conversation history
+- Entity history looks stable
+"""
+
+    def _parse_agent_output(self, result: dict, issue: DependencyIssue) -> Optional[JudgeVerdict]:
         """Parse agent's final output into JudgeVerdict"""
 
         try:
@@ -384,24 +463,31 @@ Provide your verdict in JSON format as specified.
             evidence_refs = [
                 EvidenceReference(
                     thread_id=ev.get("thread_id", "unknown"),
-                    relevance=ev.get("relevance", "supporting"),  # Must be enum value
+                    relevance=ev.get("relevance", "supporting"),
                     summary=ev.get("summary", ev.get("content", "No summary provided"))
                 )
                 for ev in parsed.get("evidence", [])
             ]
 
+            # Extract suggested_status for opportunities
+            suggested_status = None
+            if issue.issue_type == "OPPORTUNITY":
+                from app.models import EntityStatus
+                suggested_status = EntityStatus.ON_TRACK  # Default for unblocking
+
             verdict = JudgeVerdict(
-                conflict_id=conflict.conflict_id,
+                issue_id=issue.issue_id,
+                issue_type=issue.issue_type,
                 verdict=parsed["verdict"],
                 reasoning=parsed["reasoning"],
                 evidence=evidence_refs,
                 recommended_action=parsed["recommended_action"],
-                logic_rule_violated=conflict.logic_rule_violated,
                 confidence=float(parsed.get("confidence", 0.5)),
+                suggested_status=suggested_status,
                 decided_at=datetime.now(),
                 notified_teams=[
-                    conflict.parent_entity.owner_team,
-                    conflict.child_entity.owner_team
+                    issue.affected_entity.owner_team,
+                    issue.trigger_entity.owner_team
                 ]
             )
 

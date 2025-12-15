@@ -1,51 +1,53 @@
-"""Arbiter Node - Deterministic conflict detection"""
+"""Arbiter Node - Unified Change Detection"""
 
 import logging
 
 from app.graph.state import BatchGraphState
-from app.agents.arbiter import check_conflicts_for_updates
+from app.agents.arbiter import analyze_all_changes
 
 logger = logging.getLogger(__name__)
 
 
 def arbiter_node(state: BatchGraphState) -> BatchGraphState:
     """
-    Node 4: The Arbiter (Conflict Detection)
+    Node 4: The Arbiter (Unified Change Analysis)
 
-    Performs deterministic Python logic to detect dependency conflicts
-    across all extracted updates.
+    Performs deterministic analysis to detect:
+    1. Conflicts (blocking issues)
+    2. Opportunities (potential resolutions)
+    3. Cascades (downstream impacts)
 
     Args:
         state: Current graph state with extracted_updates
 
     Returns:
-        Updated state with conflicts list
+        Updated state with issues list (replaces conflicts)
     """
     logger.info("=" * 70)
-    logger.info("⚖️  ARBITER: Checking for dependency conflicts...")
+    logger.info("⚖️  ARBITER: Analyzing dependency changes...")
     logger.info("=" * 70)
 
     extracted_updates = state.get("extracted_updates", [])
 
     if not extracted_updates:
-        logger.info("   No updates to check for conflicts")
+        logger.info("   No updates to analyze")
         return {
             **state,
-            "conflicts": [],
+            "issues": [],  # Changed from "conflicts"
             "current_node": "arbiter_complete"
         }
 
-    # Check for conflicts
-    conflicts = check_conflicts_for_updates(extracted_updates)
+    # Analyze all changes (conflicts + opportunities + cascades)
+    issues = analyze_all_changes(extracted_updates)
 
-    if not conflicts:
-        logger.info("   ✓ No conflicts detected")
+    if not issues:
+        logger.info("   ✓ No issues detected")
     else:
-        logger.info(f"   ⚠️  {len(conflicts)} conflict(s) detected")
+        logger.info(f"   ⚠️  {len(issues)} issue(s) detected")
         logger.info("   Escalating to Judge...")
 
     return {
         **state,
-        "conflicts": conflicts,
+        "issues": issues,  # Changed from "conflicts"
         "current_node": "arbiter_complete"
     }

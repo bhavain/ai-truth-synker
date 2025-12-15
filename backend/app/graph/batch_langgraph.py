@@ -74,15 +74,15 @@ def dispatch_watchers(state: BatchGraphState) -> list[Send]:
 
 def should_invoke_judge(state: BatchGraphState) -> Literal["judge", "end"]:
     """
-    Conditional edge: only invoke Judge if conflicts were detected.
+    Conditional edge: invoke Judge if any issues (conflicts/opportunities/cascades) detected.
     """
-    conflicts = state.get("conflicts", [])
+    issues = state.get("issues", [])
 
-    if conflicts:
-        logger.info(f"   → Routing to Judge ({len(conflicts)} conflicts)")
+    if issues:
+        logger.info(f"   → Routing to Judge ({len(issues)} issues)")
         return "judge"
     else:
-        logger.info("   → No conflicts, skipping Judge")
+        logger.info("   → No issues, skipping Judge")
         return "end"
 
 
@@ -191,8 +191,9 @@ async def process_batch(batch: BatchSlackMessages) -> dict:
         "extracted_updates": [],
         "agent_tool_usage": {},
         "commit_hashes": {},
-        "conflicts": [],
+        "issues": [],  # Changed from "conflicts"
         "verdicts": [],
+        "auto_applied_updates": [],  # New field
         "notifications_sent": 0,
         "current_node": "start",
         "errors": []
@@ -213,8 +214,9 @@ async def process_batch(batch: BatchSlackMessages) -> dict:
         logger.info(f"✓ NOISE messages: {final_state.get('noise_count', 0)}")
         logger.info(f"✓ Conversation threads: {len(final_state.get('conversation_threads', {}))}")
         logger.info(f"✓ Updates extracted: {len(final_state.get('extracted_updates', []))}")
-        logger.info(f"✓ Conflicts detected: {len(final_state.get('conflicts', []))}")
+        logger.info(f"✓ Issues detected: {len(final_state.get('issues', []))}")
         logger.info(f"✓ Verdicts issued: {len(final_state.get('verdicts', []))}")
+        logger.info(f"✓ Auto-applied updates: {len(final_state.get('auto_applied_updates', []))}")
         logger.info(f"✓ Notifications sent: {final_state.get('notifications_sent', 0)}")
 
         if final_state.get("errors"):
