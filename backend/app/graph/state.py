@@ -2,14 +2,14 @@
 
 import operator
 from datetime import datetime
-from typing import Annotated, Dict, List, Optional
+from typing import Annotated, Dict, List, Optional, Any
 from typing_extensions import TypedDict
 
 from app.models import (
     SlackMessage,
     ConversationThread,
     ExtractedUpdate,
-    ConflictAlert,
+    DependencyIssue,
     JudgeVerdict,
     MessageClass,
 )
@@ -52,10 +52,11 @@ class BatchGraphState(TypedDict):
     commit_hashes: Dict[str, str]  # channel -> commit hash
 
     # After Arbiter
-    conflicts: List[ConflictAlert]
+    issues: List[DependencyIssue]  # List of DependencyIssue objects (conflicts + opportunities)
 
     # After Judge
     verdicts: List[JudgeVerdict]
+    auto_applied_updates: List[Dict[str, Any]]  # Auto-applied entity updates
 
     # After Notification
     notifications_sent: int

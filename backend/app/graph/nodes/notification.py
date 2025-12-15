@@ -1,7 +1,6 @@
-"""Notification Node - Send notifications for Judge verdicts"""
+"""Notification Node - Simplified 2-channel notifications"""
 
 import logging
-
 from app.graph.state import BatchGraphState
 from app.utils import notify_team
 
@@ -10,12 +9,14 @@ logger = logging.getLogger(__name__)
 
 def notification_node(state: BatchGraphState) -> BatchGraphState:
     """
-    Node 6: Notification
+    Node 6: Notification (Simplified)
 
-    Sends structured notifications to teams based on Judge verdicts.
+    Sends notifications to 2 channels:
+    1. sync-alerts: All issues (conflicts + low-confidence opportunities)
+    2. auto-applied: What the system fixed automatically
 
     Args:
-        state: Current graph state with verdicts
+        state: Current graph state with verdicts and auto_applied_updates
 
     Returns:
         Updated state with notifications_sent count
@@ -25,76 +26,43 @@ def notification_node(state: BatchGraphState) -> BatchGraphState:
     logger.info("=" * 70)
 
     verdicts = state.get("verdicts", [])
+    auto_applied_updates = state.get("auto_applied_updates", [])
 
-    if not verdicts:
-        logger.info("   No verdicts to notify")
+    if not verdicts and not auto_applied_updates:
+        logger.info("   No notifications to send")
         return {
             **state,
             "notifications_sent": 0,
             "current_node": "notification_complete"
         }
 
-    # Get corresponding conflicts for full context
-    conflicts = state.get("conflicts", [])
-    conflict_map = {c.conflict_id: c for c in conflicts}
-
     notifications_sent = 0
 
-    for verdict in verdicts:
-        conflict = conflict_map.get(verdict.conflict_id)
-        if not conflict:
-            logger.warning(f"   ⚠️  No conflict found for verdict {verdict.conflict_id}")
-            continue
-
-        # Create detailed notification payload
-        notification_payload = {
-            "type": "CONFLICT_VERDICT",
-            "conflict_id": verdict.conflict_id,
-            "verdict": verdict.verdict,
-            "parent_entity": {
-                "id": conflict.parent_entity.id,
-                "name": conflict.parent_entity.name,
-                "type": conflict.parent_entity.entity_type.value,
-                "status": conflict.parent_entity.status.value,
-                "milestone_date": str(conflict.parent_entity.milestone_date),
-                "owner_team": conflict.parent_entity.owner_team
-            },
-            "child_entity": {
-                "id": conflict.child_entity.id,
-                "name": conflict.child_entity.name,
-                "type": conflict.child_entity.entity_type.value,
-                "status": conflict.child_entity.status.value,
-                "milestone_date": str(conflict.child_entity.milestone_date),
-                "owner_team": conflict.child_entity.owner_team
-            },
-            "dependency": {
-                "type": conflict.dependency.dependency_type.value,
-                "confidence": conflict.dependency.confidence
-            },
-            "reasoning": verdict.reasoning,
-            "confidence": verdict.confidence,
-            "evidence_count": len(verdict.evidence),
-            "evidence": [
-                {
-                    "thread_id": ev.thread_id,
-                    "relevance": ev.relevance,
-                    "summary": ev.summary
-                }
-                for ev in verdict.evidence
-            ],
-            "recommended_action": verdict.recommended_action,
-            "timestamp": verdict.decided_at.isoformat()
-        }
-
-        # Send single general notification (not team-specific)
-        # Use a general "conflicts" channel or file
+    # 1. Send auto-applied notification (if any)
+    if auto_applied_updates:
+        logger.info(f"\n📢 Notifying about {len(auto_applied_updates)} auto-applied updates...")
+        auto_apply_payload = _build_auto_apply_notification(auto_applied_updates)
         try:
-            notify_team("conflicts", notification_payload)  # General conflict channel
+            notify_team("auto-applied", auto_apply_payload)
             notifications_sent += 1
-            affected_teams = ", ".join(verdict.notified_teams)
-            logger.info(f"   ✓ Notified conflicts channel (affects: {affected_teams})")
+            logger.info(f"   ✓ Notified auto-applied channel")
         except Exception as e:
-            logger.error(f"   ✗ Failed to send notification: {e}")
+            logger.error(f"   ✗ Failed to send auto-apply notification: {e}")
+
+    # 2. Send sync-alerts for issues requiring attention
+    issues_needing_attention = _filter_issues_needing_attention(verdicts, auto_applied_updates)
+
+    if issues_needing_attention:
+        logger.info(f"\n📢 Notifying about {len(issues_needing_attention)} issues...")
+        for verdict in issues_needing_attention:
+            notification_payload = _build_sync_alert_notification(verdict)
+            try:
+                notify_team("sync-alerts", notification_payload)
+                notifications_sent += 1
+                affected_teams = ", ".join(verdict.notified_teams)
+                logger.info(f"   ✓ Notified sync-alerts ({verdict.issue_type}: {verdict.issue_id[:20]}...)")
+            except Exception as e:
+                logger.error(f"   ✗ Failed to send sync-alert: {e}")
 
     logger.info(f"\n✓ Sent {notifications_sent} notifications")
 
@@ -103,3 +71,95 @@ def notification_node(state: BatchGraphState) -> BatchGraphState:
         "notifications_sent": notifications_sent,
         "current_node": "notification_complete"
     }
+
+
+def _filter_issues_needing_attention(verdicts, auto_applied_updates):
+    """
+    Filter verdicts to only those requiring manual attention.
+
+    Skip opportunities that were auto-applied (already handled).
+    """
+    auto_applied_ids = {u["entity_id"] for u in auto_applied_updates}
+
+    needing_attention = []
+    for verdict in verdicts:
+        # Always include conflicts
+        if verdict.issue_type == "CONFLICT":
+            needing_attention.append(verdict)
+        # Only include opportunities if NOT auto-applied
+        elif verdict.issue_type == "OPPORTUNITY":
+            # Check if this opportunity was auto-applied
+            # (We can infer this from confidence < threshold OR entity not in auto_applied list)
+            if verdict.confidence < 0.85:  # Below auto-apply threshold
+                needing_attention.append(verdict)
+
+    return needing_attention
+
+
+def _build_auto_apply_notification(updates) -> dict:
+    """Build notification for auto-applied updates"""
+    return {
+        "type": "AUTO_APPLIED_RESOLUTIONS",
+        "count": len(updates),
+        "updates": [
+            {
+                "entity_id": u["entity_id"],
+                "entity_name": u["entity_name"],
+                "status_change": f"{u['old_status']} → {u['new_status']}",
+                "trigger": u["trigger"],
+                "confidence": u["confidence"],
+                "reasoning": u["reasoning"][:200]  # Truncate for readability
+            }
+            for u in updates
+        ],
+        "message": f"🤖 System auto-applied {len(updates)} high-confidence resolution(s)",
+        "action_required": False
+    }
+
+
+def _build_sync_alert_notification(verdict: dict) -> dict:
+    """
+    Build unified sync-alert notification for any issue type.
+
+    Works for both CONFLICT and OPPORTUNITY issues.
+    """
+    if verdict.issue_type == "CONFLICT":
+        return {
+            "type": "CONFLICT_ALERT",
+            "issue_id": verdict.issue_id,
+            "verdict": verdict.verdict,
+            "severity": "CRITICAL",
+            "reasoning": verdict.reasoning,
+            "confidence": verdict.confidence,
+            "evidence_count": len(verdict.evidence),
+            "recommended_action": verdict.recommended_action,
+            "notified_teams": verdict.notified_teams,
+            "message": f"🚨 Conflict detected: {verdict.recommended_action}",
+            "action_required": True
+        }
+    elif verdict.issue_type == "OPPORTUNITY":
+        return {
+            "type": "RESOLUTION_OPPORTUNITY",
+            "issue_id": verdict.issue_id,
+            "verdict": verdict.verdict,
+            "severity": "INFO",
+            "reasoning": verdict.reasoning,
+            "confidence": verdict.confidence,
+            "evidence_count": len(verdict.evidence),
+            "recommended_action": verdict.recommended_action,
+            "suggested_status": verdict.suggested_status.value if verdict.suggested_status else "ON_TRACK",
+            "notified_teams": verdict.notified_teams,
+            "message": f"🟢 Resolution opportunity (confidence: {verdict.confidence:.0%}): {verdict.recommended_action}",
+            "action_required": True  # Manual review required
+        }
+    else:
+        # Generic fallback
+        return {
+            "type": "UNKNOWN_ISSUE",
+            "issue_id": verdict.issue_id,
+            "verdict": verdict.verdict,
+            "reasoning": verdict.reasoning,
+            "recommended_action": verdict.recommended_action,
+            "message": f"Issue detected: {verdict.recommended_action}",
+            "action_required": True
+        }

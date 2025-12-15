@@ -137,21 +137,22 @@ class SQLAction(BaseModel):
 
 
 # ============================================================================
-# Conflict Detection Models
+# Dependency Issue Detection Models
 # ============================================================================
 
 
-class ConflictAlert(BaseModel):
-    """Conflict detected by Arbiter"""
+class DependencyIssue(BaseModel):
+    """Dependency issue detected by Arbiter (conflict or resolution opportunity)"""
 
-    conflict_id: str = Field(..., description="Unique conflict identifier")
-    parent_entity: ProjectEntity
-    child_entity: ProjectEntity
-    dependency: Dependency
-    logic_rule_violated: str = Field(
-        ..., description="Specific project rule that was violated"
+    issue_id: str = Field(..., description="Unique issue identifier")
+    issue_type: Literal["CONFLICT", "OPPORTUNITY"] = Field(
+        ..., description="CONFLICT: blocking issue, OPPORTUNITY: potential resolution"
     )
-    severity: ConflictSeverity
+    trigger_entity: ProjectEntity = Field(..., description="Entity that changed")
+    affected_entity: ProjectEntity = Field(..., description="Entity impacted by the change")
+    dependency: Dependency
+    reason: str = Field(..., description="Why this issue exists")
+    severity: ConflictSeverity = Field(..., description="Impact level")
     detected_at: datetime = Field(default_factory=datetime.now)
 
 
@@ -166,8 +167,9 @@ class EvidenceReference(BaseModel):
 class JudgeVerdict(BaseModel):
     """Final verdict from Judge agent with evidence provenance"""
 
-    conflict_id: str
-    verdict: str = Field(..., description="CRITICAL_CONFLICT, RESOLVED, FALSE_POSITIVE")
+    issue_id: str = Field(..., description="References DependencyIssue.issue_id")
+    issue_type: Literal["CONFLICT", "OPPORTUNITY"] = Field(..., description="Type of issue deliberated")
+    verdict: str = Field(..., description="CRITICAL_CONFLICT, RESOLUTION_RECOMMENDED, FALSE_POSITIVE, etc.")
     reasoning: str = Field(..., description="Detailed explanation of the decision")
     evidence: list[EvidenceReference] = Field(
         ..., description="All Slack threads consulted"
@@ -175,15 +177,17 @@ class JudgeVerdict(BaseModel):
     recommended_action: str = Field(
         ..., description="Suggested remediation for engineering teams"
     )
-    logic_rule_violated: str = Field(..., description="Which project rule triggered the alert")
-    confidence: float = Field(1.0, ge=0.0, le=1.0)
+    confidence: float = Field(..., ge=0.0, le=1.0, description="Confidence in this verdict (used for auto-apply threshold)")
+    suggested_status: Optional[EntityStatus] = Field(None, description="For OPPORTUNITY: what status to apply")
     decided_at: datetime = Field(default_factory=datetime.now)
     notified_teams: list[str] = Field(default_factory=list, description="Teams alerted")
+
 
     class Config:
         json_schema_extra = {
             "example": {
-                "conflict_id": "conflict_2023-10-24_001",
+                "issue_id": "conflict_2023-10-24_001",
+                "issue_type": "CONFLICT",
                 "verdict": "CRITICAL_CONFLICT",
                 "reasoning": "Supply chain reports H-Bridge Driver delayed to Oct 25 due to customs hold. Avionics has Integration Test scheduled Oct 15. Driver is a CRITICAL_BLOCKER for the test.",
                 "evidence": [
@@ -300,7 +304,7 @@ class GraphState(BaseModel):
 
     # Arbiter output
     conflict_detected: bool = False
-    conflict_alert: Optional[ConflictAlert] = None
+    conflict_alert: Optional[DependencyIssue] = None
 
     # Judge output
     judge_verdict: Optional[JudgeVerdict] = None
