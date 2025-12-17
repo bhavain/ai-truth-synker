@@ -1,0 +1,41 @@
+{
+  "window_start": "2023-10-06T09:00:00",
+  "window_end": "2023-10-06T10:00:00",
+  "messages": [
+    {
+      "channel": "supply-chain",
+      "ts": "1698313200.001",
+      "user": "U001SC",
+      "text": "Good news team! TechSupply came through with expedited customs clearance.",
+      "timestamp": "2023-10-06T09:00:00"
+    },
+    {
+      "channel": "supply-chain",
+      "ts": "1698313260.002",
+      "user": "U002SC",
+      "text": "Oh that's great! What's the new timeline?",
+      "timestamp": "2023-10-06T09:01:00"
+    },
+    {
+      "channel": "supply-chain",
+      "ts": "1698313320.003",
+      "user": "U001SC",
+      "text": "They arranged a partial shipment with priority handling. We will get the HB900 driver by October 14th now.",
+      "timestamp": "2023-10-06T09:02:00"
+    },
+    {
+      "channel": "supply-chain",
+      "ts": "1698313380.004",
+      "user": "U002SC",
+      "text": "That's much better than November 7th! Should we let avionics know?",
+      "timestamp": "2023-10-06T09:03:00"
+    },
+    {
+      "channel": "supply-chain",
+      "ts": "1698313440.005",
+      "user": "U001SC",
+      "text": "Yes, please notify them. This should help with the Q3 integration test timeline.",
+      "timestamp": "2023-10-06T09:04:00"
+    }
+  ]
+}
