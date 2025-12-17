@@ -14,12 +14,16 @@ import streamlit as st
 import plotly.graph_objects as go
 import networkx as nx
 import pandas as pd
+import requests
 
 # Add backend to path
 sys.path.insert(0, str(Path(__file__).parent.parent / "backend"))
 
 from app.db.dolt_client import DoltClient
 import pymysql
+
+# Backend API configuration
+BACKEND_API_URL = "http://127.0.0.1:8000"
 
 # Page configuration
 st.set_page_config(
@@ -81,6 +85,49 @@ def load_dependencies() -> List[Dict[str, Any]]:
         import traceback
         st.error(traceback.format_exc())
         return []
+
+
+def load_pending_approvals() -> List[Dict[str, Any]]:
+    """Load pending approvals from backend API"""
+    try:
+        response = requests.get(f"{BACKEND_API_URL}/approvals", params={"status_filter": "PENDING"}, timeout=5)
+        if response.status_code == 200:
+            data = response.json()
+            return data.get("approvals", [])
+        else:
+            st.error(f"Failed to load approvals: {response.status_code}")
+            return []
+    except requests.exceptions.RequestException as e:
+        st.error(f"Error connecting to backend API: {e}")
+        return []
+
+
+def approve_verdict(approval_id: str, reviewed_by: str) -> bool:
+    """Approve a pending verdict"""
+    try:
+        response = requests.post(
+            f"{BACKEND_API_URL}/approvals/{approval_id}/approve",
+            json={"reviewed_by": reviewed_by},
+            timeout=30
+        )
+        return response.status_code == 200
+    except requests.exceptions.RequestException as e:
+        st.error(f"Error approving verdict: {e}")
+        return False
+
+
+def reject_verdict(approval_id: str, reviewed_by: str, rejection_reason: str = None) -> bool:
+    """Reject a pending verdict"""
+    try:
+        response = requests.post(
+            f"{BACKEND_API_URL}/approvals/{approval_id}/reject",
+            json={"reviewed_by": reviewed_by, "rejection_reason": rejection_reason},
+            timeout=30
+        )
+        return response.status_code == 200
+    except requests.exceptions.RequestException as e:
+        st.error(f"Error rejecting verdict: {e}")
+        return False
 
 
 def load_notifications() -> List[Dict[str, Any]]:
@@ -394,6 +441,157 @@ def render_conflict_alerts(notifications: List[Dict]):
             st.caption(f"Detected: {notif.get('timestamp', 'Unknown')}")
 
 
+def render_pending_approvals():
+    """Render pending approvals panel"""
+    st.subheader("🔐 Pending Approvals")
+
+    # Add user input for reviewer name
+    if 'reviewer_name' not in st.session_state:
+        st.session_state.reviewer_name = ""
+
+    reviewer_name = st.text_input(
+        "Your Name (for audit trail):",
+        value=st.session_state.reviewer_name,
+        key="reviewer_input",
+        placeholder="e.g., john.smith"
+    )
+
+    if reviewer_name:
+        st.session_state.reviewer_name = reviewer_name
+
+    # Load pending approvals
+    approvals = load_pending_approvals()
+
+    if not approvals:
+        st.info("✅ No pending approvals. All verdicts have been reviewed.")
+        return
+
+    st.markdown(f"**{len(approvals)} approval(s) awaiting review**")
+    st.divider()
+
+    for approval in approvals:
+        approval_id = approval.get('approval_id', 'Unknown')
+        verdict = approval.get('verdict', {})
+        created_at = approval.get('created_at', 'Unknown')
+
+        # Verdict type badge
+        verdict_type = verdict.get('verdict', 'UNKNOWN')
+        issue_type = verdict.get('issue_type', 'UNKNOWN')
+
+        # Color coding
+        if verdict_type in ['CRITICAL_CONFLICT', 'NEEDS_MANUAL_REVIEW']:
+            badge_color = '🔴'
+        elif verdict_type == 'RESOLUTION_RECOMMENDED':
+            badge_color = '🟢'
+        else:
+            badge_color = '🟡'
+
+        with st.expander(
+            f"{badge_color} {verdict_type} - {issue_type} (ID: {approval_id[:16]}...)",
+            expanded=True
+        ):
+            # Approval metadata
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Verdict Type", verdict_type)
+            with col2:
+                st.metric("Confidence", f"{verdict.get('confidence', 0):.0%}")
+            with col3:
+                st.metric("Issue Type", issue_type)
+
+            st.caption(f"Created: {created_at}")
+            st.divider()
+
+            # Reasoning
+            st.markdown("**🤔 Judge's Reasoning:**")
+            st.info(verdict.get('reasoning', 'No reasoning provided'))
+
+            # Evidence
+            if verdict.get('evidence'):
+                st.markdown("**📚 Evidence:**")
+                for i, ev in enumerate(verdict['evidence'], 1):
+                    relevance_emoji = {
+                        'primary': '🎯',
+                        'supporting': '📋',
+                        'contradictory': '⚠️'
+                    }.get(ev.get('relevance', ''), '📄')
+
+                    st.markdown(f"{relevance_emoji} **{ev.get('relevance', 'unknown').title()}**: {ev.get('summary', 'No summary')}")
+                    st.caption(f"Source: `{ev.get('thread_id', 'Unknown')}`")
+
+            # Entity Updates
+            entity_updates = verdict.get('entity_updates', [])
+            if entity_updates:
+                st.markdown(f"**📝 Entity Updates ({len(entity_updates)} entities):**")
+
+                # Create a table of updates
+                update_data = []
+                for update in entity_updates:
+                    cascade_emoji = '🎯' if update.get('cascade_level', 0) == 0 else f"{'  ' * update.get('cascade_level', 0)}↳"
+
+                    status_change = f"{update.get('current_status', 'N/A')} → {update.get('new_status', 'No change')}" if update.get('new_status') else 'No change'
+                    date_change = f"{update.get('current_date', 'N/A')} → {update.get('new_date', 'No change')}" if update.get('new_date') else 'No change'
+
+                    update_data.append({
+                        'Level': f"{cascade_emoji} L{update.get('cascade_level', 0)}",
+                        'Entity': update.get('entity_id', 'Unknown'),
+                        'Name': update.get('entity_name', 'Unknown'),
+                        'Status Change': status_change,
+                        'Date Change': date_change,
+                        'Reasoning': update.get('reasoning', 'No reasoning')[:60] + '...' if len(update.get('reasoning', '')) > 60 else update.get('reasoning', 'No reasoning')
+                    })
+
+                df = pd.DataFrame(update_data)
+                st.dataframe(df, use_container_width=True, hide_index=True)
+
+            # Recommended Action
+            st.markdown("**💡 Recommended Action:**")
+            st.success(verdict.get('recommended_action', 'No recommendation provided'))
+
+            st.divider()
+
+            # Action buttons
+            if not reviewer_name:
+                st.warning("⚠️ Please enter your name above to approve or reject this verdict.")
+            else:
+                col1, col2, col3 = st.columns([2, 2, 1])
+
+                with col1:
+                    if st.button(
+                        "✅ Approve & Apply Updates",
+                        key=f"approve_{approval_id}",
+                        type="primary",
+                        use_container_width=True
+                    ):
+                        with st.spinner("Applying updates to database..."):
+                            if approve_verdict(approval_id, reviewer_name):
+                                st.success(f"✅ Approved by {reviewer_name}! Updates applied to database.")
+                                st.balloons()
+                                # Refresh page after 2 seconds
+                                st.rerun()
+                            else:
+                                st.error("Failed to approve verdict. Check logs.")
+
+                with col2:
+                    if st.button(
+                        "❌ Reject",
+                        key=f"reject_{approval_id}",
+                        use_container_width=True
+                    ):
+                        rejection_reason = st.text_input(
+                            "Rejection reason (optional):",
+                            key=f"reject_reason_{approval_id}"
+                        )
+
+                        if st.button("Confirm Rejection", key=f"confirm_reject_{approval_id}"):
+                            with st.spinner("Rejecting verdict..."):
+                                if reject_verdict(approval_id, reviewer_name, rejection_reason):
+                                    st.success(f"❌ Rejected by {reviewer_name}")
+                                    st.rerun()
+                                else:
+                                    st.error("Failed to reject verdict. Check logs.")
+
+
 def render_entity_timeline():
     """Render entity timeline visualization"""
     st.subheader("Entity Timeline")
@@ -511,6 +709,13 @@ def main():
         if st.session_state.last_refresh:
             st.caption(f"Last refresh: {st.session_state.last_refresh.strftime('%H:%M:%S')}")
 
+        # Auto-refresh option
+        auto_refresh = st.checkbox("🔄 Auto-refresh (10s)", value=False)
+        if auto_refresh:
+            import time
+            time.sleep(10)
+            st.rerun()
+
         st.divider()
 
         st.header("System Status")
@@ -529,11 +734,19 @@ def main():
                 notifications = load_notifications()
                 conflict_count = len(notifications)
                 st.metric("Active Conflicts", conflict_count, delta=None if conflict_count == 0 else "⚠️")
+
+                # Add pending approvals count
+                try:
+                    pending_approvals = load_pending_approvals()
+                    approval_count = len(pending_approvals)
+                    st.metric("Pending Approvals", approval_count, delta="🔔" if approval_count > 0 else None)
+                except:
+                    st.metric("Pending Approvals", "N/A")
         except Exception as e:
             st.error(f"Database connection error: {e}")
 
     # Main content tabs
-    tab1, tab2, tab3 = st.tabs(["📊 Dependency Graph", "⚠️ Conflict Alerts", "📈 Entity Timeline"])
+    tab1, tab2, tab3, tab4 = st.tabs(["📊 Dependency Graph", "⚠️ Conflict Alerts", "🔐 Pending Approvals", "📈 Entity Timeline"])
 
     with tab1:
         entities = load_entities()
@@ -583,6 +796,9 @@ def main():
         render_conflict_alerts(notifications)
 
     with tab3:
+        render_pending_approvals()
+
+    with tab4:
         render_entity_timeline()
 
 
