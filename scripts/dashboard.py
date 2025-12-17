@@ -87,10 +87,11 @@ def load_dependencies() -> List[Dict[str, Any]]:
         return []
 
 
-def load_pending_approvals() -> List[Dict[str, Any]]:
-    """Load pending approvals from backend API"""
+def load_approvals(status_filter: str = None) -> List[Dict[str, Any]]:
+    """Load approvals from backend API with optional status filter"""
     try:
-        response = requests.get(f"{BACKEND_API_URL}/approvals", params={"status_filter": "PENDING"}, timeout=5)
+        params = {"status_filter": status_filter} if status_filter else {}
+        response = requests.get(f"{BACKEND_API_URL}/approvals", params=params, timeout=5)
         if response.status_code == 200:
             data = response.json()
             return data.get("approvals", [])
@@ -442,31 +443,66 @@ def render_conflict_alerts(notifications: List[Dict]):
 
 
 def render_pending_approvals():
-    """Render pending approvals panel"""
-    st.subheader("🔐 Pending Approvals")
+    """Render approvals panel with status filtering"""
+    st.subheader("🔐 Verdict Approvals")
 
-    # Add user input for reviewer name
+    # Add status filter tabs
+    status_tab1, status_tab2, status_tab3, status_tab4 = st.tabs([
+        "🟡 Pending",
+        "✅ Approved",
+        "❌ Rejected",
+        "📋 All"
+    ])
+
+    # Add user input for reviewer name (only show for pending tab)
     if 'reviewer_name' not in st.session_state:
         st.session_state.reviewer_name = ""
 
-    reviewer_name = st.text_input(
-        "Your Name (for audit trail):",
-        value=st.session_state.reviewer_name,
-        key="reviewer_input",
-        placeholder="e.g., john.smith"
-    )
+    with status_tab1:
+        _render_approvals_by_status("PENDING")
 
-    if reviewer_name:
-        st.session_state.reviewer_name = reviewer_name
+    with status_tab2:
+        _render_approvals_by_status("APPROVED")
 
-    # Load pending approvals
-    approvals = load_pending_approvals()
+    with status_tab3:
+        _render_approvals_by_status("REJECTED")
+
+    with status_tab4:
+        _render_approvals_by_status(None)
+
+
+def _render_approvals_by_status(status_filter: str = None):
+    """Render approvals for a specific status"""
+
+    # Show reviewer name input only for PENDING
+    reviewer_name = None
+    if status_filter == "PENDING":
+        reviewer_name = st.text_input(
+            "Your Name (for audit trail):",
+            value=st.session_state.reviewer_name,
+            key=f"reviewer_input_{status_filter}",
+            placeholder="e.g., john.smith"
+        )
+        if reviewer_name:
+            st.session_state.reviewer_name = reviewer_name
+
+    # Load approvals
+    approvals = load_approvals(status_filter=status_filter)
 
     if not approvals:
-        st.info("✅ No pending approvals. All verdicts have been reviewed.")
+        if status_filter == "PENDING":
+            st.info("✅ No pending approvals. All verdicts have been reviewed.")
+        elif status_filter == "APPROVED":
+            st.info("No approved verdicts yet.")
+        elif status_filter == "REJECTED":
+            st.info("No rejected verdicts yet.")
+        else:
+            st.info("No approvals in the system yet.")
         return
 
-    st.markdown(f"**{len(approvals)} approval(s) awaiting review**")
+    # Show count
+    status_label = status_filter if status_filter else "total"
+    st.markdown(f"**{len(approvals)} {status_label.lower()} approval(s)**")
     st.divider()
 
     for approval in approvals:
@@ -550,46 +586,64 @@ def render_pending_approvals():
 
             st.divider()
 
-            # Action buttons
-            if not reviewer_name:
-                st.warning("⚠️ Please enter your name above to approve or reject this verdict.")
-            else:
-                col1, col2, col3 = st.columns([2, 2, 1])
+            # Show review info for approved/rejected, or action buttons for pending
+            approval_status = approval.get('status', 'PENDING')
 
-                with col1:
-                    if st.button(
-                        "✅ Approve & Apply Updates",
-                        key=f"approve_{approval_id}",
-                        type="primary",
-                        use_container_width=True
-                    ):
-                        with st.spinner("Applying updates to database..."):
-                            if approve_verdict(approval_id, reviewer_name):
-                                st.success(f"✅ Approved by {reviewer_name}! Updates applied to database.")
-                                st.balloons()
-                                # Refresh page after 2 seconds
-                                st.rerun()
-                            else:
-                                st.error("Failed to approve verdict. Check logs.")
+            if approval_status == "APPROVED":
+                # Show approval metadata
+                reviewed_by = approval.get('reviewed_by', 'Unknown')
+                reviewed_at = approval.get('reviewed_at', 'Unknown')
+                st.success(f"✅ **Approved** by {reviewed_by} on {reviewed_at}")
+                st.caption("Entity updates have been applied to the database.")
 
-                with col2:
-                    if st.button(
-                        "❌ Reject",
-                        key=f"reject_{approval_id}",
-                        use_container_width=True
-                    ):
-                        rejection_reason = st.text_input(
-                            "Rejection reason (optional):",
-                            key=f"reject_reason_{approval_id}"
-                        )
+            elif approval_status == "REJECTED":
+                # Show rejection metadata
+                reviewed_by = approval.get('reviewed_by', 'Unknown')
+                reviewed_at = approval.get('reviewed_at', 'Unknown')
+                rejection_reason = approval.get('rejection_reason', 'No reason provided')
+                st.error(f"❌ **Rejected** by {reviewed_by} on {reviewed_at}")
+                st.caption(f"Reason: {rejection_reason}")
 
-                        if st.button("Confirm Rejection", key=f"confirm_reject_{approval_id}"):
-                            with st.spinner("Rejecting verdict..."):
-                                if reject_verdict(approval_id, reviewer_name, rejection_reason):
-                                    st.success(f"❌ Rejected by {reviewer_name}")
+            elif approval_status == "PENDING":
+                # Show action buttons for pending approvals
+                if not reviewer_name:
+                    st.warning("⚠️ Please enter your name above to approve or reject this verdict.")
+                else:
+                    col1, col2, col3 = st.columns([2, 2, 1])
+
+                    with col1:
+                        if st.button(
+                            "✅ Approve & Apply Updates",
+                            key=f"approve_{approval_id}",
+                            type="primary",
+                            use_container_width=True
+                        ):
+                            with st.spinner("Applying updates to database..."):
+                                if approve_verdict(approval_id, reviewer_name):
+                                    st.success(f"✅ Approved by {reviewer_name}! Updates applied to database.")
+                                    st.balloons()
                                     st.rerun()
                                 else:
-                                    st.error("Failed to reject verdict. Check logs.")
+                                    st.error("Failed to approve verdict. Check logs.")
+
+                    with col2:
+                        if st.button(
+                            "❌ Reject",
+                            key=f"reject_{approval_id}",
+                            use_container_width=True
+                        ):
+                            rejection_reason = st.text_input(
+                                "Rejection reason (optional):",
+                                key=f"reject_reason_{approval_id}"
+                            )
+
+                            if st.button("Confirm Rejection", key=f"confirm_reject_{approval_id}"):
+                                with st.spinner("Rejecting verdict..."):
+                                    if reject_verdict(approval_id, reviewer_name, rejection_reason):
+                                        st.success(f"❌ Rejected by {reviewer_name}")
+                                        st.rerun()
+                                    else:
+                                        st.error("Failed to reject verdict. Check logs.")
 
 
 def render_entity_timeline():
@@ -737,7 +791,7 @@ def main():
 
                 # Add pending approvals count
                 try:
-                    pending_approvals = load_pending_approvals()
+                    pending_approvals = load_approvals(status_filter="PENDING")
                     approval_count = len(pending_approvals)
                     st.metric("Pending Approvals", approval_count, delta="🔔" if approval_count > 0 else None)
                 except:
