@@ -552,7 +552,9 @@ Use the available tools to:
 - Validate date relationships
 - Calculate smart date suggestions using calculate_suggested_date tool
 
-IMPORTANT: Your final answer must be a JSON object with this structure:
+IMPORTANT WORKFLOW:
+1. First, gather evidence and analyze the issue using the tools above
+2. Create your verdict as a JSON object with this structure:
 {
     "verdict": "CRITICAL_CONFLICT" | "RESOLUTION_RECOMMENDED" | "NEEDS_MANUAL_REVIEW" | "FALSE_POSITIVE",
     "reasoning": "detailed explanation of your decision",
@@ -591,11 +593,15 @@ CRITICAL: Use get_dependency_tree tool to analyze COMPLETE cascade impact. For e
 6. Set appropriate cascade_level for each update
 
 DATE SUGGESTION REQUIREMENTS:
-- For CONFLICTS: When a child delays, use calculate_suggested_date to compute smart new dates
-  * Tool considers prep_time_days, entity type buffers, and other factors
-  * Suggest dates for entities with date conflicts (parent < child)
+- For CONFLICTS: When a child delays, ALL upstream dates must be checked and updated if needed
+  * STEP 1: Update the direct entity using calculate_suggested_date
+  * STEP 2: For EACH upstream entity, compare its current date to the NEW date of its dependency
+  * STEP 3: If parent.current_date < child.new_date → MUST update parent date!
+  * Use calculate_suggested_date for each entity that needs updating
+  * Don't just mark as AT_RISK - actually UPDATE THE DATES!
 - For OPPORTUNITIES: When child recovers, suggest rolling back dates IF no other blockers exist
-- ONLY populate new_status or new_date if change is needed (use null otherwise)
+- IMPORTANT: "No date conflict" is NOT an excuse to skip cascade entities
+  * Check date conflicts AFTER applying the direct entity's new date, not before!
 
 CONFIDENCE GUIDELINES:
 - 0.85-1.0: Very high confidence, can auto-apply (for opportunities)
@@ -606,7 +612,14 @@ CONFIDENCE GUIDELINES:
 EVIDENCE FORMAT RULES:
 - thread_id: For Slack threads use "slack://channel/ts", for tools use "tool:check_dependencies", "tool:check_entity_history", etc.
 - relevance: MUST be one of: "primary" (main evidence), "supporting" (additional context), "contradictory" (conflicts with other evidence)
-- summary: Describe what the evidence shows and its importance to the verdict"""
+- summary: Describe what the evidence shows and its importance to the verdict
+
+3. CRITICAL FINAL STEP: After creating your verdict JSON, you MUST call the apply_entity_updates tool
+   with your complete verdict JSON as a string parameter. This submits it for human approval.
+
+   Example: apply_entity_updates(verdict_json='{"verdict": "CRITICAL_CONFLICT", "reasoning": "...", ...}')
+
+   DO NOT just return the JSON - you MUST call the apply_entity_updates tool or your verdict will be lost!"""
 
         # Get tools for this agent
         tools = self._get_tools()
@@ -671,19 +684,14 @@ EVIDENCE FORMAT RULES:
 
             logger.info(f"   Tools used: {', '.join(self.tool_usage_log)}")
 
-            # Check if interrupted (HITL needed)
+            # With HITL, we always expect an interrupt
             if "__interrupt__" in result:
                 logger.info(f"   ⏸️  HITL INTERRUPT: Approval required")
                 return result  # Return interrupt info
-
-            # Parse agent output
-            verdict = self._parse_agent_output(result, issue)
-
-            if verdict:
-                logger.info(f"   ⚖️  VERDICT: {verdict.verdict}")
-                logger.info(f"   Confidence: {verdict.confidence:.2f}")
-
-            return {"verdict": verdict}
+            else:
+                # This shouldn't happen with HITL middleware configured
+                logger.warning(f"   ⚠️  No interrupt received - this is unexpected with HITL enabled")
+                return result
 
         except Exception as e:
             logger.error(f"   ✗ Judge deliberation failed: {e}")
@@ -723,26 +731,66 @@ DEPENDENCY:
 TASK - CASCADE ANALYSIS:
 You must analyze the COMPLETE impact of this conflict:
 
-1. Use get_dependency_tree({issue.affected_entity.id}) to get ALL upstream dependencies
-2. For EACH entity in the upstream tree, determine:
-   - Should it be BLOCKED? (if it depends on a blocked entity)
-   - Should it be AT_RISK? (if dates are tight but might work)
-   - Can it stay ON_TRACK? (if there's sufficient buffer)
-3. Use validate_dates for each upstream entity to check date compatibility
-4. Use query_vector_store to check for any additional context about entities
+CRITICAL: You must think FORWARD - imagine AFTER you update {issue.affected_entity.id}, will its parents still work?
+
+STEP 1: Update the directly affected entity
+- {issue.affected_entity.id} is cascade_level=0 (direct impact)
+- Use calculate_suggested_date to get its new date
+- This entity will be BLOCKED or DELAYED
+
+STEP 2: Analyze CASCADE impact on ALL upstream dependencies
+Use get_dependency_tree({issue.affected_entity.id}) to get ALL entities that depend on it.
+
+For EACH upstream entity (parents, grandparents, etc.):
+   a. ASSUME {issue.affected_entity.id} now has its NEW date (from step 1)
+   b. Check: Is the upstream entity's current date BEFORE the new date of {issue.affected_entity.id}?
+      - YES → Date conflict! This entity's date MUST be updated
+      - NO → Check if buffer is sufficient (7+ days)
+
+   c. If date needs updating:
+      - Call calculate_suggested_date for this entity using the NEW date of its dependency
+      - Use the suggested_date as new_date
+      - Set appropriate status (BLOCKED, AT_RISK, DELAYED)
+
+   d. If no date update needed but dependency is delayed:
+      - Consider setting status to AT_RISK (depends on delayed entity)
+
+EXAMPLE - THINK THROUGH THE CASCADE:
+If {issue.affected_entity.id} is Q3_INTEGRATION_TEST moving from Oct 18 → Nov 13:
+
+1. Q3_DELIVERY_MILESTONE (parent, currently Oct 25):
+   - Oct 25 < Nov 13? YES! ❌
+   - Milestone is BEFORE test completion!
+   - MUST update: Call calculate_suggested_date(Q3_DELIVERY_MILESTONE, Nov 13)
+   - Result: Nov 13 + 7 days buffer = Nov 20
+   - Set new_date: "2023-11-20", new_status: "AT_RISK", cascade_level: 1
+
+2. SYSTEM_FLIGHT_TEST (grandparent, currently Nov 20):
+   - Depends on Q3_DELIVERY_MILESTONE which now moved to Nov 20
+   - Nov 20 (flight test) vs Nov 20 (delivery)? Same day! ❌
+   - No buffer! MUST update
+   - Calculate: Nov 20 + 3 days prep = Nov 23
+   - Set new_date: "2023-11-23", cascade_level: 2
+
+3. Use query_vector_store to check for any additional context about entities
 
 OUTPUT REQUIREMENTS:
 - Include {issue.affected_entity.id} as cascade_level=0 (direct impact)
-- Include ALL upstream entities that need status changes
+- Include ALL upstream entities that need status OR date changes
+- For entities with date conflicts, populate new_date with calculate_suggested_date result
 - Set cascade_level based on distance from direct entity (1, 2, 3...)
 - Be comprehensive - a manager needs to see the full blast radius
 
-CRITICAL FINAL STEP:
-After creating your verdict in JSON format, you MUST call the apply_entity_updates tool
-with the complete verdict JSON as a string parameter. This will submit the verdict for
-human approval before any changes are applied to the database.
+CRITICAL FINAL STEP - MANDATORY:
+You MUST call the apply_entity_updates tool with your complete verdict JSON.
+This is NOT optional - without this tool call, your verdict will be lost!
 
-Example: apply_entity_updates(verdict_json='{{...complete verdict JSON...}}')
+Steps:
+1. Create your complete verdict JSON with all fields above
+2. Convert it to a JSON string
+3. Call: apply_entity_updates(verdict_json='<your complete JSON here>')
+
+DO NOT just output the JSON and stop - you MUST make the tool call!
 """
 
     def _build_opportunity_task(self, issue: DependencyIssue) -> str:
@@ -791,107 +839,21 @@ OUTPUT REQUIREMENTS:
 - Set cascade_level based on distance from direct entity (1, 2, 3...)
 - Be comprehensive - show full positive cascade
 
-CRITICAL FINAL STEP:
-After creating your verdict in JSON format, you MUST call the apply_entity_updates tool
-with the complete verdict JSON as a string parameter. This will submit the verdict for
-human approval before any changes are applied to the database.
+CRITICAL FINAL STEP - MANDATORY:
+You MUST call the apply_entity_updates tool with your complete verdict JSON.
+This is NOT optional - without this tool call, your verdict will be lost!
 
-Example: apply_entity_updates(verdict_json='{{...complete verdict JSON...}}')
+Steps:
+1. Create your complete verdict JSON with all fields above
+2. Convert it to a JSON string
+3. Call: apply_entity_updates(verdict_json='<your complete JSON here>')
+
+DO NOT just output the JSON and stop - you MUST make the tool call!
 """
 
-    def _parse_agent_output(self, result: dict, issue: DependencyIssue) -> Optional[JudgeVerdict]:
-        """Parse agent's final output into JudgeVerdict"""
-
-        try:
-            # New agent API returns messages in result
-            messages = result.get("messages", [])
-            if not messages:
-                logger.warning("   ⚠️  No messages in agent response")
-                return None
-
-            # Get the last AI message
-            last_message = messages[-1]
-            output_text = last_message.content if hasattr(last_message, 'content') else str(last_message)
-
-            # Try to parse JSON
-            if isinstance(output_text, str):
-                # Extract JSON from text
-                import re
-                json_match = re.search(r'\{[\s\S]*\}', output_text)
-                if json_match:
-                    output_text = json_match.group(0)
-
-                parsed = json.loads(output_text)
-            else:
-                parsed = output_text
-
-            # Parse evidence references with correct schema
-            evidence_refs = [
-                EvidenceReference(
-                    thread_id=ev.get("thread_id", "unknown"),
-                    relevance=ev.get("relevance", "supporting"),
-                    summary=ev.get("summary", ev.get("content", "No summary provided"))
-                )
-                for ev in parsed.get("evidence", [])
-            ]
-
-            # Parse entity_updates
-            from app.models import EntityUpdate, EntityStatus
-            from datetime import datetime as dt
-            entity_updates = []
-            for update in parsed.get("entity_updates", []):
-                # Parse dates if present
-                current_date = None
-                new_date = None
-                if "current_date" in update:
-                    try:
-                        current_date = dt.strptime(update["current_date"], "%Y-%m-%d").date()
-                    except:
-                        pass
-
-                if update.get("new_date"):
-                    try:
-                        new_date = dt.strptime(update["new_date"], "%Y-%m-%d").date()
-                    except:
-                        pass
-
-                # Parse statuses
-                current_status = EntityStatus(update["current_status"])
-                new_status = EntityStatus(update["new_status"]) if update.get("new_status") else None
-
-                entity_updates.append(EntityUpdate(
-                    entity_id=update["entity_id"],
-                    entity_name=update["entity_name"],
-                    current_status=current_status,
-                    new_status=new_status,
-                    current_date=current_date,
-                    new_date=new_date,
-                    reasoning=update.get("reasoning", ""),
-                    cascade_level=update.get("cascade_level", 0)
-                ))
-
-            verdict = JudgeVerdict(
-                issue_id=issue.issue_id,
-                issue_type=issue.issue_type,
-                verdict=parsed["verdict"],
-                reasoning=parsed["reasoning"],
-                evidence=evidence_refs,
-                recommended_action=parsed["recommended_action"],
-                confidence=float(parsed.get("confidence", 0.5)),
-                entity_updates=entity_updates,
-                decided_at=datetime.now(),
-                notified_teams=[
-                    issue.affected_entity.owner_team,
-                    issue.trigger_entity.owner_team
-                ]
-            )
-
-            return verdict
-
-        except Exception as e:
-            logger.error(f"   ✗ Failed to parse Judge output: {e}")
-            logger.debug(f"   Raw output: {result.get('output', 'N/A')}")
-            return None
+    # NOTE: _parse_agent_output is no longer used with HITL enabled
+    # The verdict JSON is stored directly in pending_approvals table
+    # and parsed when needed by the dashboard or API endpoints
 
 
 def get_global_checkpointer():

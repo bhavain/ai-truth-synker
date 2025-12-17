@@ -95,15 +95,27 @@ def _check_opportunities(entity: ProjectEntity, seen_pairs: Set) -> List[Depende
     """
     Check if this entity resolves any blockers.
 
-    Rule: Entity status improved (e.g., DELAYED → ON_TRACK)
-          Find all dependents that are BLOCKED
-          Check if they can be unblocked now
+    Opportunities are detected when:
+    1. Entity status is favorable (ON_TRACK, COMPLETED)
+    2. Entity date moved earlier (recovery from delay)
+    3. Blocked/At-Risk dependents may now be able to proceed
+
+    Rule: If this entity's status improved OR dates are now more favorable,
+          check if any blocked/at-risk dependents can be unblocked/improved
     """
     dolt = get_dolt_client()
     opportunities = []
 
-    # Only check if status is now favorable
-    if entity.status not in [EntityStatus.ON_TRACK, EntityStatus.COMPLETED]:
+    # Check if status is favorable OR entity could help unblock others
+    # Even DELAYED entities can create opportunities if dates moved earlier
+    status_is_favorable = entity.status in [EntityStatus.ON_TRACK, EntityStatus.COMPLETED]
+
+    # We'll check for opportunities if:
+    # 1. Status is favorable, OR
+    # 2. Entity is in a transitional state (AT_RISK, DELAYED) that might have improved
+    # The Judge will determine if the opportunity is real by checking dependencies
+    if not status_is_favorable and entity.status in [EntityStatus.BLOCKED, EntityStatus.CRITICAL]:
+        # Entity is still critically blocked, unlikely to create opportunities
         return opportunities
 
     # Find all entities that were potentially blocked by this one
@@ -139,20 +151,21 @@ def _check_opportunities(entity: ProjectEntity, seen_pairs: Set) -> List[Depende
 
 
 def _find_blocked_dependents(entity_id: str) -> List[Tuple[ProjectEntity, Dependency]]:
-    """Find all dependents that are BLOCKED and depend on this entity"""
+    """Find all dependents that are BLOCKED or AT_RISK and depend on this entity"""
     dolt = get_dolt_client()
 
     with dolt.get_connection() as conn:
         cursor = conn.cursor()
 
-        # Find all entities that depend on this entity and are BLOCKED
+        # Find all entities that depend on this entity and are BLOCKED or AT_RISK
+        # AT_RISK entities might be unblocked if this entity recovers
         cursor.execute("""
             SELECT p.*, d.dependency_type, d.confidence
             FROM project_entities p
             JOIN dependencies d ON d.parent_id = p.id
             WHERE d.child_id = %s
               AND d.dependency_type = 'CRITICAL_BLOCKER'
-              AND p.status = 'BLOCKED'
+              AND p.status IN ('BLOCKED', 'AT_RISK', 'DELAYED')
         """, (entity_id,))
 
         results = []

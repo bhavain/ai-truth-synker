@@ -124,11 +124,8 @@ def judge_node(state: BatchGraphState) -> BatchGraphState:
             pending_approvals.append(approval_id)
 
         else:
-            # No interrupt - verdict was created but no approval needed (shouldn't happen with our setup)
-            verdict = result.get("verdict")
-            if verdict:
-                verdicts.append(verdict)
-                logger.info(f"   ✓ Verdict: {verdict.verdict} (confidence: {verdict.confidence:.2f})")
+            # No interrupt - this shouldn't happen with HITL always enabled
+            logger.warning(f"   ⚠️  No interrupt received for {issue.issue_id} - HITL may not be configured correctly")
 
     logger.info(f"\n✓ Judge processed {len(issues)} issues")
     logger.info(f"   Verdicts issued: {len(verdicts)}")
