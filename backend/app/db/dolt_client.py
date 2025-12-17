@@ -110,6 +110,21 @@ class DoltClient:
                     )
                 """)
 
+                # Create pending_approvals table
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS pending_approvals (
+                        approval_id VARCHAR(100) PRIMARY KEY,
+                        verdict_json TEXT NOT NULL,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        status ENUM('PENDING', 'APPROVED', 'REJECTED') DEFAULT 'PENDING',
+                        reviewed_by VARCHAR(100),
+                        reviewed_at TIMESTAMP NULL,
+                        rejection_reason TEXT,
+                        INDEX idx_status (status),
+                        INDEX idx_created_at (created_at)
+                    )
+                """)
+
                 # Create initial Dolt commit (only if there are changes)
                 try:
                     cursor.execute("CALL DOLT_COMMIT('-a', '-m', 'Initialize Truth Engine schema')")
@@ -330,6 +345,111 @@ class DoltClient:
                         conflicts.append((parent_entity, child_entity, dependency))
 
         return conflicts
+
+    def create_pending_approval(self, approval_id: str, verdict_json: str) -> None:
+        """Create a new pending approval"""
+        with self.get_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """
+                    INSERT INTO pending_approvals
+                    (approval_id, verdict_json, status)
+                    VALUES (%s, %s, 'PENDING')
+                    """,
+                    (approval_id, verdict_json),
+                )
+                # Commit to Dolt
+                cursor.execute("CALL DOLT_ADD('.')")
+                cursor.execute("CALL DOLT_COMMIT('-m', %s)", (f"Create pending approval: {approval_id}",))
+
+        logger.info(f"Created pending approval {approval_id}")
+
+    def get_pending_approval(self, approval_id: str) -> Optional[dict]:
+        """Get a specific pending approval by ID"""
+        with self.get_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT approval_id, verdict_json, created_at, status, reviewed_by, reviewed_at, rejection_reason
+                    FROM pending_approvals
+                    WHERE approval_id = %s
+                    """,
+                    (approval_id,),
+                )
+                return cursor.fetchone()
+
+    def get_all_pending_approvals(self, status_filter: Optional[str] = None) -> list[dict]:
+        """Get all pending approvals, optionally filtered by status"""
+        with self.get_connection() as conn:
+            with conn.cursor() as cursor:
+                if status_filter:
+                    cursor.execute(
+                        """
+                        SELECT approval_id, verdict_json, created_at, status, reviewed_by, reviewed_at, rejection_reason
+                        FROM pending_approvals
+                        WHERE status = %s
+                        ORDER BY created_at DESC
+                        """,
+                        (status_filter,),
+                    )
+                else:
+                    cursor.execute(
+                        """
+                        SELECT approval_id, verdict_json, created_at, status, reviewed_by, reviewed_at, rejection_reason
+                        FROM pending_approvals
+                        ORDER BY created_at DESC
+                        """
+                    )
+                return cursor.fetchall()
+
+    def approve_pending_approval(self, approval_id: str, reviewed_by: str) -> bool:
+        """Approve a pending approval and return True if successful"""
+        with self.get_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """
+                    UPDATE pending_approvals
+                    SET status = 'APPROVED', reviewed_by = %s, reviewed_at = NOW()
+                    WHERE approval_id = %s AND status = 'PENDING'
+                    """,
+                    (reviewed_by, approval_id),
+                )
+
+                if cursor.rowcount == 0:
+                    return False
+
+                # Commit to Dolt
+                cursor.execute("CALL DOLT_ADD('.')")
+                cursor.execute("CALL DOLT_COMMIT('-m', %s)", (f"Approved: {approval_id} by {reviewed_by}",))
+
+        logger.info(f"Approved {approval_id} by {reviewed_by}")
+        return True
+
+    def reject_pending_approval(self, approval_id: str, reviewed_by: str, rejection_reason: Optional[str] = None) -> bool:
+        """Reject a pending approval and return True if successful"""
+        with self.get_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """
+                    UPDATE pending_approvals
+                    SET status = 'REJECTED', reviewed_by = %s, reviewed_at = NOW(), rejection_reason = %s
+                    WHERE approval_id = %s AND status = 'PENDING'
+                    """,
+                    (reviewed_by, rejection_reason, approval_id),
+                )
+
+                if cursor.rowcount == 0:
+                    return False
+
+                # Commit to Dolt
+                cursor.execute("CALL DOLT_ADD('.')")
+                cursor.execute(
+                    "CALL DOLT_COMMIT('-m', %s)",
+                    (f"Rejected: {approval_id} by {reviewed_by}" + (f" - {rejection_reason}" if rejection_reason else ""),),
+                )
+
+        logger.info(f"Rejected {approval_id} by {reviewed_by}")
+        return True
 
 
 @lru_cache()

@@ -2,18 +2,24 @@
 
 import json
 import logging
-from typing import List, Optional
+import uuid
+from typing import List, Optional, Dict, Any
 from datetime import datetime
 
 from langchain_openai import ChatOpenAI
 from langchain.agents import create_agent
 from langchain_core.tools import tool
+from langchain.agents.middleware import HumanInTheLoopMiddleware
+from langgraph.checkpoint.memory import InMemorySaver
 
 from app.config import get_settings
 from app.db import get_vector_store, get_dolt_client
 from app.models import DependencyIssue, JudgeVerdict, EvidenceReference
 
 logger = logging.getLogger(__name__)
+
+# Global singleton checkpointer for HITL persistence
+_global_checkpointer = InMemorySaver()
 
 
 class JudgeAgent:
@@ -235,6 +241,78 @@ class JudgeAgent:
                 })
 
         @tool
+        def calculate_suggested_date(entity_id: str, child_date_str: str) -> str:
+            """Calculate a smart suggested date for an entity based on child date and entity metadata. Input: entity_id,child_date (e.g., 'Q3_INTEGRATION_TEST,2023-11-07'). Returns: Suggested date with buffer calculation reasoning."""
+            tool_usage_log.append(f"calculate_suggested_date({entity_id},{child_date_str[:10]})")
+
+            try:
+                from datetime import datetime, timedelta
+
+                # Parse child date
+                child_date = datetime.strptime(child_date_str.strip(), "%Y-%m-%d").date()
+
+                # Get entity
+                entity = dolt.get_entity(entity_id)
+                if not entity:
+                    return json.dumps({
+                        "success": False,
+                        "error": f"Entity {entity_id} not found"
+                    })
+
+                # Calculate buffer based on entity type and metadata
+                buffer_days = 0
+                reasoning_parts = []
+
+                # Check for prep_time_days in metadata
+                prep_time = entity.metadata.get("prep_time_days", 0) if entity.metadata else 0
+                if prep_time > 0:
+                    buffer_days += prep_time
+                    reasoning_parts.append(f"{prep_time} days prep time from metadata")
+
+                # Add entity type-based buffer
+                entity_type_buffers = {
+                    "TEST": 3,  # Tests need setup time
+                    "MILESTONE": 5,  # Milestones need review/approval time
+                    "REQUIREMENT": 7,  # Requirements need certification time
+                    "PART": 1,  # Parts just need receiving/inspection
+                }
+                type_buffer = entity_type_buffers.get(entity.entity_type.value, 2)
+                buffer_days += type_buffer
+                reasoning_parts.append(f"{type_buffer} days buffer for {entity.entity_type.value}")
+
+                # Calculate suggested date
+                suggested_date = child_date + timedelta(days=buffer_days)
+
+                # Check if current date already has sufficient buffer
+                current_buffer = (entity.milestone_date - child_date).days if entity.milestone_date > child_date else 0
+                needs_update = suggested_date > entity.milestone_date
+
+                return json.dumps({
+                    "success": True,
+                    "entity_id": entity_id,
+                    "entity_type": entity.entity_type.value,
+                    "child_date": str(child_date),
+                    "current_date": str(entity.milestone_date),
+                    "current_buffer_days": current_buffer,
+                    "calculated_buffer_days": buffer_days,
+                    "suggested_date": str(suggested_date),
+                    "needs_update": needs_update,
+                    "reasoning": f"Child date: {child_date}. Buffer calculation: {' + '.join(reasoning_parts)} = {buffer_days} days total. Suggested: {suggested_date}",
+                    "buffer_breakdown": {
+                        "prep_time": prep_time,
+                        "entity_type_buffer": type_buffer,
+                        "total": buffer_days
+                    }
+                }, indent=2)
+
+            except Exception as e:
+                logger.warning(f"Tool calculate_suggested_date failed: {e}")
+                return json.dumps({
+                    "success": False,
+                    "error": str(e)
+                })
+
+        @tool
         def get_dependency_tree(entity_id: str) -> str:
             """Get complete dependency tree (upstream and downstream) for an entity. Input: entity_id (e.g., 'Q3_INTEGRATION_TEST'). Returns: Full tree showing what this entity depends on (children) and what depends on it (parents), recursively up to root milestones."""
             tool_usage_log.append(f"get_dependency_tree({entity_id})")
@@ -350,7 +428,102 @@ class JudgeAgent:
                     "error": str(e)
                 })
 
-        return [query_vector_store, check_entity_history, check_dependencies, validate_dates, get_dependency_tree]
+        @tool
+        def apply_entity_updates(verdict_json: str) -> str:
+            """Apply entity updates from a Judge verdict to the database. Input: JSON string of the complete JudgeVerdict. This tool will be interrupted for human approval, then apply updates to project_entities after approval."""
+            tool_usage_log.append(f"apply_entity_updates(verdict_json)")
+
+            try:
+                # Parse the verdict
+                verdict_dict = json.loads(verdict_json)
+
+                # Apply all entity updates from the verdict to the database
+                with dolt.get_connection() as conn:
+                    cursor = conn.cursor()
+
+                    updated_count = 0
+
+                    for update in verdict_dict.get("entity_updates", []):
+                        entity_id = update["entity_id"]
+
+                        # Build update query dynamically based on what changed
+                        update_fields = []
+                        update_values = []
+
+                        if update.get("new_status"):
+                            update_fields.append("status = %s")
+                            update_values.append(update["new_status"])
+
+                        if update.get("new_date"):
+                            update_fields.append("milestone_date = %s")
+                            update_values.append(update["new_date"])
+
+                        if not update_fields:
+                            continue  # No changes for this entity
+
+                        # Add entity_id for WHERE clause
+                        update_values.append(entity_id)
+
+                        query = f"""
+                            UPDATE project_entities
+                            SET {', '.join(update_fields)}
+                            WHERE id = %s
+                        """
+
+                        cursor.execute(query, tuple(update_values))
+
+                        if cursor.rowcount > 0:
+                            updated_count += 1
+                            changes = []
+                            if update.get("new_status"):
+                                changes.append(f"status → {update['new_status']}")
+                            if update.get("new_date"):
+                                changes.append(f"date → {update['new_date']}")
+                            logger.info(f"      ✓ Updated {entity_id}: {', '.join(changes)}")
+
+                    if updated_count == 0:
+                        logger.warning("   No actual changes to commit")
+                        return json.dumps({
+                            "success": False,
+                            "message": "No entities were updated"
+                        })
+
+                    # Build commit message (handle missing issue_id gracefully)
+                    issue_id = verdict_dict.get('issue_id', 'unknown')
+                    verdict_type = verdict_dict.get('verdict', 'UNKNOWN')
+                    confidence = verdict_dict.get('confidence', 0)
+
+                    commit_msg = f"""Judge Verdict Applied: {issue_id}
+
+Verdict: {verdict_type}
+Confidence: {confidence:.2f}
+
+Updates applied: {updated_count} entities
+"""
+
+                    # Commit to Dolt
+                    cursor.execute("CALL DOLT_ADD('.')")
+                    cursor.execute("CALL DOLT_COMMIT('-m', %s)", (commit_msg,))
+
+                logger.info(f"   ✓ Applied {updated_count} entity updates to database")
+
+                return json.dumps({
+                    "success": True,
+                    "entity_updates_applied": updated_count,
+                    "message": f"Successfully updated {updated_count} entities in database"
+                })
+
+            except Exception as e:
+                logger.error(f"   ✗ Failed to apply entity updates: {e}")
+                import traceback
+                logger.error(f"   Traceback: {traceback.format_exc()}")
+                return json.dumps({
+                    "success": False,
+                    "error": str(e),
+                    "traceback": traceback.format_exc()
+                })
+
+        return [query_vector_store, check_entity_history, check_dependencies, validate_dates, calculate_suggested_date, get_dependency_tree, apply_entity_updates]
 
     def _create_agent(self):
         """Create agent with tools using new LangChain API"""
@@ -369,6 +542,7 @@ Your role is to analyze dependency issues (conflicts and resolution opportunitie
 2. What is the severity and impact?
 3. What evidence supports this conclusion?
 4. What action should be taken?
+5. What date and status changes should be suggested?
 
 Use the available tools to:
 - Search historical conversations for context
@@ -376,6 +550,7 @@ Use the available tools to:
 - Verify dependency relationships
 - Check for other blockers
 - Validate date relationships
+- Calculate smart date suggestions using calculate_suggested_date tool
 
 IMPORTANT: Your final answer must be a JSON object with this structure:
 {
@@ -394,8 +569,11 @@ IMPORTANT: Your final answer must be a JSON object with this structure:
         {
             "entity_id": "ENTITY_ID",
             "entity_name": "ENTITY_NAME",
-            "new_status": "BLOCKED" | "ON_TRACK" | "AT_RISK" | "DELAYED",
-            "reasoning": "why this entity needs this specific status update",
+            "current_status": "CURRENT_STATUS",
+            "new_status": "BLOCKED" | "ON_TRACK" | "AT_RISK" | "DELAYED" | null,  // null if no status change needed
+            "current_date": "YYYY-MM-DD",
+            "new_date": "YYYY-MM-DD" | null,  // null if no date change needed
+            "reasoning": "why this entity needs these updates",
             "cascade_level": 0  // 0=direct entity, 1=first level cascade, 2+=further levels
         }
     ]
@@ -408,8 +586,16 @@ CRITICAL: Use get_dependency_tree tool to analyze COMPLETE cascade impact. For e
    - Date compatibility
    - Current status
    - Dependency type
-4. Include ALL affected entities in entity_updates array
-5. Set appropriate cascade_level for each update
+4. Use calculate_suggested_date for entities needing date changes
+5. Include ALL affected entities in entity_updates array with current_status, current_date
+6. Set appropriate cascade_level for each update
+
+DATE SUGGESTION REQUIREMENTS:
+- For CONFLICTS: When a child delays, use calculate_suggested_date to compute smart new dates
+  * Tool considers prep_time_days, entity type buffers, and other factors
+  * Suggest dates for entities with date conflicts (parent < child)
+- For OPPORTUNITIES: When child recovers, suggest rolling back dates IF no other blockers exist
+- ONLY populate new_status or new_date if change is needed (use null otherwise)
 
 CONFIDENCE GUIDELINES:
 - 0.85-1.0: Very high confidence, can auto-apply (for opportunities)
@@ -425,30 +611,41 @@ EVIDENCE FORMAT RULES:
         # Get tools for this agent
         tools = self._get_tools()
 
-        # Create agent using new API
+        # Create agent using new API with HITL middleware
         agent = create_agent(
             model=llm,
             tools=tools,
+            middleware=[
+                HumanInTheLoopMiddleware(
+                    interrupt_on={
+                        "apply_entity_updates": True  # Interrupt for human approval (approve/reject/edit allowed)
+                    },
+                    description_prefix="Entity updates pending approval"
+                )
+            ],
+            checkpointer=_global_checkpointer,  # Use global singleton for persistence
             system_prompt=system_prompt
         )
 
         return agent
 
-    def deliberate(self, issue: DependencyIssue) -> Optional[JudgeVerdict]:
+    def deliberate(self, issue: DependencyIssue, config: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
         """
-        Analyze dependency issue and issue verdict.
+        Analyze dependency issue and issue verdict with HITL support.
 
         Agent autonomously:
         1. Gathers evidence from vector store
         2. Checks entity history in Dolt
         3. Validates dependencies and dates
         4. Issues verdict with reasoning
+        5. Calls apply_entity_updates tool → HITL interrupt may occur
 
         Args:
             issue: DependencyIssue to analyze
+            config: LangGraph config with thread_id for HITL (required for interrupts)
 
         Returns:
-            JudgeVerdict or None if deliberation fails
+            Dict with 'verdict' or '__interrupt__' key if approval needed
         """
         logger.info(f"⚖️  JUDGE: Analyzing {issue.issue_type} {issue.issue_id}...")
 
@@ -466,11 +663,18 @@ EVIDENCE FORMAT RULES:
 
         try:
             # Let agent work autonomously using new API
+            # Pass config for HITL interrupt handling
             result = self.agent.invoke(
-                {"messages": [{"role": "user", "content": task}]}
+                {"messages": [{"role": "user", "content": task}]},
+                config=config  # Pass through for HITL
             )
 
             logger.info(f"   Tools used: {', '.join(self.tool_usage_log)}")
+
+            # Check if interrupted (HITL needed)
+            if "__interrupt__" in result:
+                logger.info(f"   ⏸️  HITL INTERRUPT: Approval required")
+                return result  # Return interrupt info
 
             # Parse agent output
             verdict = self._parse_agent_output(result, issue)
@@ -479,7 +683,7 @@ EVIDENCE FORMAT RULES:
                 logger.info(f"   ⚖️  VERDICT: {verdict.verdict}")
                 logger.info(f"   Confidence: {verdict.confidence:.2f}")
 
-            return verdict
+            return {"verdict": verdict}
 
         except Exception as e:
             logger.error(f"   ✗ Judge deliberation failed: {e}")
@@ -533,7 +737,12 @@ OUTPUT REQUIREMENTS:
 - Set cascade_level based on distance from direct entity (1, 2, 3...)
 - Be comprehensive - a manager needs to see the full blast radius
 
-Provide your verdict in JSON format with complete entity_updates array.
+CRITICAL FINAL STEP:
+After creating your verdict in JSON format, you MUST call the apply_entity_updates tool
+with the complete verdict JSON as a string parameter. This will submit the verdict for
+human approval before any changes are applied to the database.
+
+Example: apply_entity_updates(verdict_json='{{...complete verdict JSON...}}')
 """
 
     def _build_opportunity_task(self, issue: DependencyIssue) -> str:
@@ -582,11 +791,12 @@ OUTPUT REQUIREMENTS:
 - Set cascade_level based on distance from direct entity (1, 2, 3...)
 - Be comprehensive - show full positive cascade
 
-Provide verdict in JSON format with complete entity_updates array. Use confidence >= 0.85 ONLY if:
-- No other blockers exist for ALL entities
-- Dates are compatible for ALL entities
-- No concerns in conversation history
-- Entity history looks stable
+CRITICAL FINAL STEP:
+After creating your verdict in JSON format, you MUST call the apply_entity_updates tool
+with the complete verdict JSON as a string parameter. This will submit the verdict for
+human approval before any changes are applied to the database.
+
+Example: apply_entity_updates(verdict_json='{{...complete verdict JSON...}}')
 """
 
     def _parse_agent_output(self, result: dict, issue: DependencyIssue) -> Optional[JudgeVerdict]:
@@ -627,12 +837,35 @@ Provide verdict in JSON format with complete entity_updates array. Use confidenc
 
             # Parse entity_updates
             from app.models import EntityUpdate, EntityStatus
+            from datetime import datetime as dt
             entity_updates = []
             for update in parsed.get("entity_updates", []):
+                # Parse dates if present
+                current_date = None
+                new_date = None
+                if "current_date" in update:
+                    try:
+                        current_date = dt.strptime(update["current_date"], "%Y-%m-%d").date()
+                    except:
+                        pass
+
+                if update.get("new_date"):
+                    try:
+                        new_date = dt.strptime(update["new_date"], "%Y-%m-%d").date()
+                    except:
+                        pass
+
+                # Parse statuses
+                current_status = EntityStatus(update["current_status"])
+                new_status = EntityStatus(update["new_status"]) if update.get("new_status") else None
+
                 entity_updates.append(EntityUpdate(
                     entity_id=update["entity_id"],
                     entity_name=update["entity_name"],
-                    new_status=EntityStatus(update["new_status"]),
+                    current_status=current_status,
+                    new_status=new_status,
+                    current_date=current_date,
+                    new_date=new_date,
                     reasoning=update.get("reasoning", ""),
                     cascade_level=update.get("cascade_level", 0)
                 ))
@@ -659,3 +892,8 @@ Provide verdict in JSON format with complete entity_updates array. Use confidenc
             logger.error(f"   ✗ Failed to parse Judge output: {e}")
             logger.debug(f"   Raw output: {result.get('output', 'N/A')}")
             return None
+
+
+def get_global_checkpointer():
+    """Get the global checkpointer instance for API endpoints to resume workflows"""
+    return _global_checkpointer

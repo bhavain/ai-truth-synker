@@ -165,11 +165,14 @@ class EvidenceReference(BaseModel):
 
 
 class EntityUpdate(BaseModel):
-    """A single entity status update as part of cascade resolution"""
+    """A single entity status/date update as part of cascade resolution"""
 
     entity_id: str = Field(..., description="Entity to update")
     entity_name: str = Field(..., description="Human-readable name of the entity")
-    new_status: EntityStatus = Field(..., description="New status to apply")
+    current_status: EntityStatus = Field(..., description="Current status of the entity")
+    new_status: Optional[EntityStatus] = Field(None, description="New status to apply (only if status should change)")
+    current_date: date = Field(..., description="Current milestone date of the entity")
+    new_date: Optional[date] = Field(None, description="New milestone date to apply (only if date should change)")
     reasoning: str = Field(..., description="Why this entity needs this update")
     cascade_level: int = Field(0, description="0=direct, 1+=cascade levels")
 
@@ -196,23 +199,28 @@ class JudgeVerdict(BaseModel):
     notified_teams: list[str] = Field(default_factory=list, description="Teams alerted")
 
 
+class PendingApproval(BaseModel):
+    """Pending approval for a Judge verdict requiring human review"""
+
+    approval_id: str = Field(..., description="Unique approval identifier")
+    verdict: JudgeVerdict = Field(..., description="The verdict awaiting approval")
+    created_at: datetime = Field(default_factory=datetime.now)
+    status: Literal["PENDING", "APPROVED", "REJECTED"] = Field("PENDING", description="Approval status")
+    reviewed_by: Optional[str] = Field(None, description="Username/ID of reviewer")
+    reviewed_at: Optional[datetime] = Field(None, description="When the approval was reviewed")
+    rejection_reason: Optional[str] = Field(None, description="Reason for rejection (if applicable)")
+
     class Config:
         json_schema_extra = {
             "example": {
-                "issue_id": "conflict_2023-10-24_001",
-                "issue_type": "CONFLICT",
-                "verdict": "CRITICAL_CONFLICT",
-                "reasoning": "Supply chain reports H-Bridge Driver delayed to Oct 25 due to customs hold. Avionics has Integration Test scheduled Oct 15. Driver is a CRITICAL_BLOCKER for the test.",
-                "evidence": [
-                    {
-                        "thread_id": "slack://supply-chain/1698163200.123456",
-                        "relevance": "primary",
-                        "summary": "Vendor reports 2-week customs delay for HB-900",
-                    }
-                ],
-                "recommended_action": "Reschedule Integration Test to Oct 26 or later, or expedite customs clearance",
-                "logic_rule_violated": "milestone_dependency_date_violation",
-                "confidence": 0.95,
+                "approval_id": "approval_2023-10-05_001",
+                "verdict": {
+                    "issue_id": "conflict_2023-10-05_001",
+                    "verdict": "CRITICAL_CONFLICT",
+                    "confidence": 0.92
+                },
+                "status": "PENDING",
+                "created_at": "2023-10-05T10:15:00"
             }
         }
 
