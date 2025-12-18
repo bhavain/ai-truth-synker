@@ -295,11 +295,26 @@ Always return your final answer as valid JSON with the extracted entity updates.
             if isinstance(output_text, str):
                 # Extract JSON from text (agent might add extra text)
                 import re
-                json_match = re.search(r'\{[\s\S]*\}|\[[\s\S]*\]', output_text)
+
+                # Try to find JSON array first, then JSON object
+                # Use non-greedy matching and balance brackets
+                json_match = re.search(r'\[\s*\{.*?\}\s*\]', output_text, re.DOTALL)
+                if not json_match:
+                    # Try single JSON object
+                    json_match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', output_text, re.DOTALL)
+
                 if json_match:
                     output_text = json_match.group(0)
+                else:
+                    logger.warning(f"   ⚠️  No JSON found in output: {output_text[:200]}")
+                    return []
 
-                parsed = json.loads(output_text)
+                try:
+                    parsed = json.loads(output_text)
+                except json.JSONDecodeError as e:
+                    logger.error(f"   ✗ JSON parse error: {e}")
+                    logger.error(f"   Attempted to parse: {output_text[:500]}")
+                    return []
             else:
                 parsed = output_text
 

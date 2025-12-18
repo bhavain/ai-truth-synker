@@ -28,7 +28,8 @@ SCENARIOS = {
         "name": "HB900 Fast-Tracked (Opportunity)",
         "description": "HB900 driver expedited to Oct 14 - Creates OPPORTUNITY to unblock dependencies",
         "file": "scenario_hb900_delay_resolved.json",
-        "expected": "OPPORTUNITY issue → Judge suggests unblocking entities → Pending approval"
+        "expected": "OPPORTUNITY issue → Judge suggests unblocking entities → Pending approval",
+        "prerequisite": "Run Scenario 1 first to create the delay, then run this to resolve it"
     },
     "3": {
         "name": "Cascade Delay (Complex Conflict)",
@@ -57,6 +58,8 @@ def display_menu():
     for key, scenario in SCENARIOS.items():
         print(f"  [{key}] {scenario['name']}")
         print(f"      {scenario['description']}")
+        if scenario.get('prerequisite'):
+            print(f"      ⚠️  Prerequisite: {scenario['prerequisite']}")
         print(f"      Expected: {scenario['expected']}")
         print()
 
