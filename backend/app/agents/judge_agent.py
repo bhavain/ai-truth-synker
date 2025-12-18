@@ -97,53 +97,79 @@ class JudgeAgent:
 
         @tool
         def check_entity_history(entity_id: str) -> str:
-            """Query Dolt database for entity update history. Input: entity_id (e.g., 'HB900_DRIVER'). Returns: Historical status and milestone_date changes with commit info."""
+            """Query Dolt database for entity update history with actual date/status changes. Input: entity_id (e.g., 'HB900_DRIVER'). Returns: Historical status and milestone_date changes showing WHAT changed (from → to)."""
             tool_usage_log.append(f"check_entity_history({entity_id})")
 
             try:
-                # Query Dolt history
+                # Query Dolt diff to see actual changes
                 with dolt.get_connection() as conn:
                     with conn.cursor() as cursor:
-                        # Get commit log for this entity
+                        # Get actual changes from dolt_diff
                         cursor.execute("""
                             SELECT
-                                commit_hash,
-                                committer,
-                                date,
-                                message
-                            FROM dolt_log
-                            WHERE commit_hash IN (
-                                SELECT DISTINCT commit_hash
-                                FROM dolt_diff_project_entities
-                                WHERE to_id = %s OR from_id = %s
-                            )
-                            ORDER BY date DESC
+                                from_status,
+                                to_status,
+                                from_milestone_date,
+                                to_milestone_date,
+                                from_commit,
+                                to_commit,
+                                to_commit_date
+                            FROM dolt_diff_project_entities
+                            WHERE to_id = %s OR from_id = %s
+                            ORDER BY to_commit_date DESC
                             LIMIT 5
                         """, (entity_id, entity_id))
 
-                        history = cursor.fetchall()
+                        changes = cursor.fetchall()
 
-                        if history:
+                        if changes:
+                            history_entries = []
+                            for change in changes:
+                                entry = {
+                                    "commit": change["to_commit"][:8] if change["to_commit"] else "unknown",
+                                    "date": str(change["to_commit_date"]) if change["to_commit_date"] else "unknown"
+                                }
+
+                                # Show what changed
+                                changes_list = []
+                                if change["from_status"] != change["to_status"]:
+                                    changes_list.append(f"status: {change['from_status']} → {change['to_status']}")
+                                if change["from_milestone_date"] != change["to_milestone_date"]:
+                                    changes_list.append(f"date: {change['from_milestone_date']} → {change['to_milestone_date']}")
+
+                                entry["changes"] = ", ".join(changes_list) if changes_list else "no changes"
+
+                                # Get commit message for context
+                                cursor.execute("""
+                                    SELECT message FROM dolt_log
+                                    WHERE commit_hash = %s
+                                """, (change["to_commit"],))
+                                commit_info = cursor.fetchone()
+                                if commit_info:
+                                    entry["message"] = commit_info["message"][:100]  # First 100 chars
+
+                                history_entries.append(entry)
+
                             return json.dumps({
-                                "found": len(history),
-                                "history": [
-                                    {
-                                        "commit": h["commit_hash"][:8],
-                                        "date": str(h["date"]),
-                                        "message": h["message"]
-                                    }
-                                    for h in history
-                                ]
+                                "found": len(history_entries),
+                                "entity_id": entity_id,
+                                "history": history_entries,
+                                "note": "Use this to understand WHY current dates exist and what were ORIGINAL dates before conflicts pushed them out"
                             }, indent=2)
                         else:
-                            return json.dumps({"found": 0, "history": []})
+                            return json.dumps({
+                                "found": 0,
+                                "entity_id": entity_id,
+                                "history": [],
+                                "note": "No history found - entity may not have been updated since initial load"
+                            })
 
             except Exception as e:
                 logger.warning(f"Tool check_entity_history failed: {e}")
                 return json.dumps({
                     "found": 0,
                     "history": [],
-                    "error": "Could not retrieve history"
+                    "error": f"Could not retrieve history: {str(e)}"
                 })
 
         @tool
@@ -821,23 +847,58 @@ DEPENDENCY:
 - Type: {issue.dependency.dependency_type.value}
 - {issue.affected_entity.id} depends on {issue.trigger_entity.id}
 
-TASK - CASCADE ANALYSIS:
-You must analyze the COMPLETE impact of unblocking this entity:
+TASK - OPPORTUNITY ANALYSIS WITH HISTORICAL CONTEXT:
 
-1. check_dependencies({issue.affected_entity.id}): Are there OTHER blockers?
-2. validate_dates for {issue.affected_entity.id}
-3. Use get_dependency_tree({issue.affected_entity.id}) to get ALL upstream dependencies
-4. For EACH entity in the upstream tree, determine:
-   - Can it be UNBLOCKED? (if this was its last blocker)
-   - Should it move to ON_TRACK? (if all dependencies resolved)
-   - Does it need to stay AT_RISK or BLOCKED? (if other blockers exist)
-5. query_vector_store to check for context about entities
+CRITICAL: This is an OPPORTUNITY to ROLL BACK inflated dates that were pushed out due to the blocker!
+
+STEP 1: Understand WHY current dates exist (Historical Context)
+Use check_entity_history for {issue.affected_entity.id} and its upstream dependencies to find:
+   a. What were the ORIGINAL dates before the blocker caused delays?
+   b. When were dates PUSHED OUT due to {issue.trigger_entity.id} delay?
+   c. Look for commit messages like "Judge Verdict Applied" or "CASCADE" that show date changes
+
+Example history analysis:
+- Q3_INTEGRATION_TEST original: Oct 18
+- Changed to Nov 13 on 2023-10-15 (due to HB900_DRIVER delay to Nov 7)
+- Now HB900_DRIVER recovered to Oct 14
+- Can we go back to Oct 18? (Oct 18 > Oct 14 + 3 days prep = Oct 17) YES!
+
+STEP 2: Determine what dates CAN be rolled back
+For {issue.affected_entity.id} and EACH upstream entity:
+   a. Check current date vs original date (from history)
+   b. Check if original date is still feasible given NEW {issue.trigger_entity.id} date
+   c. Use calculate_suggested_date to verify date compatibility
+   d. If original date is feasible → ROLL BACK to original
+   e. If not feasible but can be earlier than current → Calculate new earlier date
+
+STEP 3: Check for OTHER blockers
+Use check_dependencies for each entity - can only roll back if this was the ONLY blocker
+
+STEP 4: Get full dependency tree
+Use get_dependency_tree({issue.affected_entity.id}) to see ALL upstream entities
+Each upstream entity might also have inflated dates that can be rolled back
+
+EXAMPLE ROLLBACK LOGIC:
+Current state (after conflict):
+- HB900_DRIVER: Nov 7 → Oct 14 (OPPORTUNITY!)
+- Q3_INTEGRATION_TEST: Nov 13 (was Oct 18 originally)
+- Q3_DELIVERY_MILESTONE: Nov 20 (was Oct 25 originally)
+
+Analysis:
+1. Q3_INTEGRATION_TEST history shows: Oct 18 → Nov 13 (pushed due to HB900 delay)
+   - Can roll back to Oct 18? Check: Oct 18 vs Oct 14 + 3 days = Oct 17? YES!
+   - new_date: "2023-10-18" (ROLLBACK to original)
+
+2. Q3_DELIVERY_MILESTONE history shows: Oct 25 → Nov 20 (cascaded from test delay)
+   - Can roll back to Oct 25? Check: Oct 25 vs Oct 18 + 7 days = Oct 25? YES!
+   - new_date: "2023-10-25" (ROLLBACK to original)
 
 OUTPUT REQUIREMENTS:
 - Include {issue.affected_entity.id} as cascade_level=0 (direct unblock)
-- Include ALL upstream entities that can now proceed
+- Include ALL upstream entities with date rollbacks
+- Use historical dates from check_entity_history where possible
+- Explain in reasoning: "Rolling back from X to original date Y"
 - Set cascade_level based on distance from direct entity (1, 2, 3...)
-- Be comprehensive - show full positive cascade
 
 CRITICAL FINAL STEP - MANDATORY:
 You MUST call the apply_entity_updates tool with your complete verdict JSON.
